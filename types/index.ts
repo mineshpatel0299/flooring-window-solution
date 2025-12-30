@@ -90,6 +90,9 @@ export interface CanvasSettings {
   zoom: number;
   pan: Point;
   perspective?: PerspectiveTransform;
+  tileSize?: number;
+  featherEdges?: boolean;
+  preserveLighting?: boolean;
 }
 
 // API response types

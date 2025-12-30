@@ -118,3 +118,31 @@ export function getCanvasInfo(canvas: HTMLCanvasElement): {
     estimatedFileSize,
   };
 }
+
+/**
+ * Export canvas as JPEG
+ */
+export async function exportAsJPEG(
+  canvas: HTMLCanvasElement,
+  filename: string = 'image.jpg',
+  quality: number = 0.92
+): Promise<void> {
+  return downloadCanvas(canvas, filename, 'image/jpeg', quality);
+}
+
+/**
+ * Export canvas as PNG
+ */
+export async function exportAsPNG(
+  canvas: HTMLCanvasElement,
+  filename: string = 'image.png'
+): Promise<void> {
+  return downloadCanvas(canvas, filename, 'image/png', 1.0);
+}
+
+/**
+ * Copy canvas to clipboard (alias for copyCanvasToClipboard)
+ */
+export async function copyToClipboard(canvas: HTMLCanvasElement): Promise<void> {
+  return copyCanvasToClipboard(canvas);
+}

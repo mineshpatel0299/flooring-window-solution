@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { ArrowLeft, Upload, Camera, Sparkles, Palette, Download } from 'lucide-react';
 import { ImageUploader } from '@/components/visualizer/ImageUploader';
@@ -16,7 +16,7 @@ import type { SegmentationData, Texture, CanvasSettings } from '@/types';
 
 type WorkflowStep = 'upload' | 'segment' | 'select-texture' | 'edit' | 'export';
 
-export default function FloorVisualizerPage() {
+function FloorVisualizerContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const projectId = searchParams.get('project');
@@ -44,39 +44,45 @@ export default function FloorVisualizerPage() {
   const [canvasSettings, setCanvasSettings] = useState<CanvasSettings>({
     opacity: 0.8,
     blendMode: 'multiply',
+    zoom: 1,
+    pan: { x: 0, y: 0 },
     tileSize: 512,
     featherEdges: true,
     preserveLighting: true,
   });
 
-  // Load project if projectId is provided
-  useEffect(() => {
-    if (projectId) {
-      loadExistingProject(projectId);
-    }
-  }, [projectId]);
-
-  const loadExistingProject = async (id: string) => {
+  const loadExistingProject = useCallback(async (id: string) => {
     const project = await loadProject(id);
     if (project) {
       setOriginalImageUrl(project.original_image_url);
       setProcessedImageUrl(project.processed_image_url || null);
-      setSegmentationData(project.segmentation_data);
-      setCanvasSettings(project.canvas_settings);
+      setSegmentationData(project.segmentation_data || null);
+      if (project.canvas_settings) {
+        setCanvasSettings(project.canvas_settings);
+      }
       // Load texture by ID if available
       if (project.texture_id) {
         // Will be set when texture is loaded from TextureSelector
       }
       setCurrentStep('edit');
     }
-  };
+  }, []);
 
-  const handleImageSelected = async (file: File) => {
-    setOriginalImageFile(file);
+  // Load project if projectId is provided
+  useEffect(() => {
+    if (projectId) {
+      loadExistingProject(projectId);
+    }
+  }, [projectId, loadExistingProject]);
+
+  const handleImageSelected = async (file: Blob | File) => {
+    // Convert Blob to File if needed
+    const imageFile = file instanceof File ? file : new File([file], 'image.jpg', { type: file.type });
+    setOriginalImageFile(imageFile);
 
     // Upload image
     try {
-      const result = await uploadImage(file);
+      const result = await uploadImage(imageFile);
       setOriginalImageUrl(result.url);
       setCurrentStep('segment');
     } catch (err) {
@@ -207,7 +213,7 @@ export default function FloorVisualizerPage() {
 
             <ImageUploader
               onImageSelected={handleImageSelected}
-              accept="image/jpeg,image/png,image/webp"
+              mode="floor"
             />
 
             <div className="text-center">
@@ -330,5 +336,18 @@ export default function FloorVisualizerPage() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function FloorVisualizerPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-background flex items-center justify-center">
+      <div className="text-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+        <p className="text-muted-foreground">Loading...</p>
+      </div>
+    </div>}>
+      <FloorVisualizerContent />
+    </Suspense>
   );
 }

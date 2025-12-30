@@ -37,7 +37,7 @@ export function CategoryManager({ onUpdate }: CategoryManagerProps) {
       const data = await response.json();
 
       if (data.success) {
-        setCategories(data.data.categories);
+        setCategories(data.data || []);
       } else {
         setError(data.error || 'Failed to fetch categories');
       }
