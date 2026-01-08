@@ -6,29 +6,50 @@ import { detectWindow, detectWindowBoundaries } from '@/lib/tensorflow/window-de
 import type { SegmentationData, VisualizationType } from '@/types';
 
 interface AISegmentationProps {
-  image: HTMLImageElement;
-  mode: VisualizationType;
-  onSegmentationComplete: (data: SegmentationData, confidence: number) => void;
+  imageUrl: string;
+  type: VisualizationType;
+  onComplete: (data: SegmentationData) => void;
   onError: (error: Error) => void;
   autoRun?: boolean;
 }
 
 export function AISegmentation({
-  image,
-  mode,
-  onSegmentationComplete,
+  imageUrl,
+  type,
+  onComplete,
   onError,
   autoRun = true,
 }: AISegmentationProps) {
   const [isProcessing, setIsProcessing] = useState(false);
   const [progress, setProgress] = useState(0);
   const [status, setStatus] = useState<string>('');
+  const [image, setImage] = useState<HTMLImageElement | null>(null);
+
+  // Load image from URL
+  useEffect(() => {
+    if (imageUrl) {
+      console.log('Loading image from URL:', imageUrl);
+      const img = new Image();
+      // IMPORTANT: crossOrigin is required for canvas/WebGL operations with TensorFlow.js
+      img.crossOrigin = 'anonymous';
+      img.onload = () => {
+        console.log('Image loaded successfully');
+        setImage(img);
+      };
+      img.onerror = (e) => {
+        console.error('Failed to load image from URL:', imageUrl, e);
+        onError(new Error(`Failed to load image from: ${imageUrl}`));
+      };
+      img.src = imageUrl;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [imageUrl]);
 
   useEffect(() => {
     if (autoRun && image) {
       runSegmentation();
     }
-  }, [image, mode, autoRun]);
+  }, [image, type, autoRun]);
 
   const runSegmentation = async () => {
     if (!image) {
@@ -50,7 +71,7 @@ export function AISegmentation({
 
       let segmentationData: SegmentationData;
 
-      if (mode === 'floor') {
+      if (type === 'floor') {
         segmentationData = await detectFloor(image);
 
         // Detect floor boundaries for perspective
@@ -89,7 +110,7 @@ export function AISegmentation({
       setProgress(100);
 
       // Call the callback with results
-      onSegmentationComplete(segmentationData, segmentationData.confidence);
+      onComplete(segmentationData);
 
       setIsProcessing(false);
     } catch (error) {

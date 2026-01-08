@@ -2,35 +2,35 @@
 
 import { useRef, useEffect, useState, useCallback } from 'react';
 import { applyTextureOverlay, drawMaskOverlay, drawPerspectiveHandles } from '@/lib/canvas/overlay';
-import { exportCanvasAsBlob, downloadCanvas } from '@/lib/canvas/export';
+import { downloadCanvas } from '@/lib/canvas/export';
 import { DEFAULT_CANVAS_SETTINGS } from '@/lib/constants';
-import type { SegmentationData, CanvasSettings, Texture, VisualizationType } from '@/types';
+import type { SegmentationData, CanvasSettings, Texture } from '@/types';
 
 interface CanvasEditorProps {
-  originalImage: string;
+  originalImageUrl: string;
   segmentationMask?: SegmentationData;
   selectedTexture?: Texture | null;
-  mode: VisualizationType;
-  onSave?: (blob: Blob) => void;
-  settings?: Partial<CanvasSettings>;
+  settings?: CanvasSettings;
+  onSettingsChange?: (settings: CanvasSettings) => void;
+  onCanvasReady?: (canvas: HTMLCanvasElement) => void;
 }
 
 export function CanvasEditor({
-  originalImage,
+  originalImageUrl,
   segmentationMask,
   selectedTexture,
-  mode,
-  onSave,
   settings: propSettings,
+  onSettingsChange,
+  onCanvasReady,
 }: CanvasEditorProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const originalImageRef = useRef<HTMLImageElement | null>(null);
   const textureImageRef = useRef<HTMLImageElement | null>(null);
 
-  const [settings, setSettings] = useState<CanvasSettings>({
+  const [settings, setSettings] = useState<CanvasSettings>(() => ({
     ...DEFAULT_CANVAS_SETTINGS,
     ...propSettings,
-  });
+  }));
 
   const [isRendering, setIsRendering] = useState(false);
   const [showMask, setShowMask] = useState(false);
@@ -38,6 +38,16 @@ export function CanvasEditor({
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+
+  // Sync settings from props
+  useEffect(() => {
+    if (propSettings) {
+      setSettings((prev) => ({
+        ...prev,
+        ...propSettings,
+      }));
+    }
+  }, [propSettings]);
 
   // Load original image
   useEffect(() => {
@@ -47,8 +57,8 @@ export function CanvasEditor({
       originalImageRef.current = img;
       renderCanvas();
     };
-    img.src = originalImage;
-  }, [originalImage]);
+    img.src = originalImageUrl;
+  }, [originalImageUrl]);
 
   // Load texture image
   useEffect(() => {
@@ -173,17 +183,24 @@ export function CanvasEditor({
     await downloadCanvas(canvasRef.current, filename, mimeType);
   };
 
-  const handleSave = async () => {
-    if (!canvasRef.current || !onSave) return;
-
-    const blob = await exportCanvasAsBlob(canvasRef.current);
-    onSave(blob);
-  };
-
   // Update settings
-  const updateSettings = (updates: Partial<CanvasSettings>) => {
-    setSettings((prev) => ({ ...prev, ...updates }));
-  };
+  const updateSettings = useCallback((updates: Partial<CanvasSettings>) => {
+    const newSettings = { ...settings, ...updates };
+    setSettings(newSettings);
+    if (onSettingsChange) {
+      // Use setTimeout to avoid updating parent during render
+      setTimeout(() => {
+        onSettingsChange(newSettings);
+      }, 0);
+    }
+  }, [settings, onSettingsChange]);
+
+  // Notify when canvas is ready
+  useEffect(() => {
+    if (canvasRef.current && onCanvasReady) {
+      onCanvasReady(canvasRef.current);
+    }
+  }, [onCanvasReady]);
 
   return (
     <div className="flex flex-col h-full">
@@ -259,15 +276,6 @@ export function CanvasEditor({
           >
             Export PNG
           </button>
-          {onSave && (
-            <button
-              onClick={handleSave}
-              className="flex-1 px-4 py-2 bg-accent text-accent-foreground rounded-md hover:bg-accent/80"
-              disabled={isRendering}
-            >
-              Save Project
-            </button>
-          )}
         </div>
 
         {isRendering && (

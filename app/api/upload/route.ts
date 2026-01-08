@@ -94,15 +94,20 @@ export async function POST(request: NextRequest) {
         {
           success: false,
           error: error.message || 'Failed to upload file',
+          details: error,
         },
         { status: 500 }
       );
     }
 
+    console.log('File uploaded successfully:', data.path);
+
     // Get public URL
     const { data: publicUrlData } = supabase.storage
       .from(bucket)
       .getPublicUrl(data.path);
+
+    console.log('Public URL generated:', publicUrlData.publicUrl);
 
     return NextResponse.json({
       success: true,

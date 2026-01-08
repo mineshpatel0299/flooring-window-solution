@@ -40,14 +40,15 @@ function resizeImage(
  * Convert segmentation result to binary mask
  * Returns a 2D array where 1 = surface, 0 = not surface
  */
-function createBinaryMask(
+async function createBinaryMask(
   segmentation: bodySegmentation.Segmentation,
   width: number,
   height: number,
   invertMask: boolean = false
-): number[][] {
+): Promise<number[][]> {
   const mask: number[][] = [];
-  const maskData = segmentation.mask.toCanvasImageSource() as ImageData;
+  // Use toImageData() instead of toCanvasImageSource() to get ImageData
+  const maskData = await segmentation.mask.toImageData();
 
   for (let y = 0; y < height; y++) {
     const row: number[] = [];
@@ -219,7 +220,7 @@ export async function segmentImage(
     const segmentation = segmentations[0];
 
     // Create binary mask
-    let mask = createBinaryMask(
+    let mask = await createBinaryMask(
       segmentation,
       canvas.width,
       canvas.height,

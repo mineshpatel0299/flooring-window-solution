@@ -33,7 +33,10 @@ export function useImageUpload(): UseImageUploadResult {
       try {
         // Step 1: Preprocess image
         setProgress(20);
-        let processedFile = file;
+
+        // Preserve original filename for extension
+        const originalName = file instanceof File ? file.name : 'image.jpg';
+        let processedFile: File | Blob = file;
 
         // Resize if needed
         processedFile = await resizeImage(processedFile);
@@ -48,6 +51,13 @@ export function useImageUpload(): UseImageUploadResult {
           processedFile = await fixImageOrientation(processedFile);
         }
         setProgress(70);
+
+        // Convert Blob back to File to preserve filename
+        if (!(processedFile instanceof File)) {
+          processedFile = new File([processedFile], originalName, {
+            type: processedFile.type || 'image/jpeg'
+          });
+        }
 
         // Step 2: Upload to server
         const formData = new FormData();

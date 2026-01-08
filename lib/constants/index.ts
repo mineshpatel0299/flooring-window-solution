@@ -6,7 +6,7 @@ export const APP_DESCRIPTION = "Visualize flooring mats and window films in your
 // Image upload constraints
 export const MAX_UPLOAD_SIZE = parseInt(process.env.NEXT_PUBLIC_MAX_UPLOAD_SIZE || '10485760'); // 10MB
 export const MAX_IMAGE_DIMENSION = parseInt(process.env.NEXT_PUBLIC_MAX_IMAGE_DIMENSION || '2048');
-export const ACCEPTED_IMAGE_FORMATS = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+export const ACCEPTED_IMAGE_FORMATS = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
 
 // TensorFlow.js configuration
 export const TF_BACKEND = process.env.NEXT_PUBLIC_TF_BACKEND || 'wasm';

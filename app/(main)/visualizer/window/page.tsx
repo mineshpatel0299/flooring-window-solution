@@ -7,6 +7,7 @@ import { ImageUploader } from '@/components/visualizer/ImageUploader';
 import { CameraCapture } from '@/components/visualizer/CameraCapture';
 import { AISegmentation } from '@/components/visualizer/AISegmentation';
 import { TextureSelector } from '@/components/visualizer/TextureSelector';
+import { TexturePreviewCanvas } from '@/components/visualizer/TexturePreviewCanvas';
 import { CanvasEditor } from '@/components/visualizer/CanvasEditor';
 import { ExportPanel } from '@/components/visualizer/ExportPanel';
 import { ProjectSaver } from '@/components/visualizer/ProjectSaver';
@@ -260,7 +261,7 @@ function WindowVisualizerContent() {
         )}
 
         {/* Step 3: Select Texture */}
-        {currentStep === 'select-texture' && (
+        {currentStep === 'select-texture' && originalImageUrl && segmentationData && (
           <div className="space-y-6">
             <div className="text-center mb-8">
               <h2 className="text-2xl font-bold mb-2">Choose a Window Film</h2>
@@ -269,11 +270,51 @@ function WindowVisualizerContent() {
               </p>
             </div>
 
-            <TextureSelector
-              type="window"
-              selectedTexture={selectedTexture}
-              onTextureSelected={handleTextureSelected}
-            />
+            <div className="grid lg:grid-cols-[400px_1fr] gap-6">
+              {/* Texture Selector */}
+              <div className="h-150 border border-border rounded-lg overflow-hidden bg-card">
+                <TextureSelector
+                  mode="window"
+                  selectedId={selectedTexture?.id || null}
+                  onSelect={handleTextureSelected}
+                />
+              </div>
+
+              {/* Live Preview */}
+              <div className="h-150 border border-border rounded-lg overflow-hidden bg-card p-4">
+                <div className="h-full flex flex-col">
+                  <div className="mb-4">
+                    <h3 className="text-lg font-semibold">Live Preview</h3>
+                    <p className="text-sm text-muted-foreground">
+                      {selectedTexture
+                        ? `Previewing: ${selectedTexture.name}`
+                        : 'Select a film to see preview'}
+                    </p>
+                  </div>
+                  <div className="flex-1 min-h-0">
+                    <TexturePreviewCanvas
+                      originalImageUrl={originalImageUrl}
+                      segmentationData={segmentationData}
+                      texture={selectedTexture}
+                      opacity={0.7}
+                      blendMode="multiply"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Continue Button */}
+            {selectedTexture && (
+              <div className="flex justify-center pt-4">
+                <button
+                  onClick={() => setCurrentStep('edit')}
+                  className="px-8 py-3 bg-primary text-primary-foreground rounded-md hover:opacity-90 font-medium"
+                >
+                  Continue to Editor
+                </button>
+              </div>
+            )}
           </div>
         )}
 

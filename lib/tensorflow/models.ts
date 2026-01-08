@@ -53,9 +53,8 @@ export async function loadSegmentationModel(): Promise<bodySegmentation.BodySegm
     // Create segmenter with MediaPipe SelfieSegmentation
     // This model is good at detecting backgrounds (floors, walls, etc.)
     const model = bodySegmentation.SupportedModels.MediaPipeSelfieSegmentation;
-    const segmenterConfig: bodySegmentation.MediaPipeSelfieSegmentationMediaPipeModelConfig = {
-      runtime: 'mediapipe',
-      solutionPath: 'https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation',
+    const segmenterConfig: bodySegmentation.MediaPipeSelfieSegmentationTfjsModelConfig = {
+      runtime: 'tfjs', // Use TFJS runtime to avoid MediaPipe bundling issues
       modelType: 'general', // 'general' works better for varied scenes
     };
 

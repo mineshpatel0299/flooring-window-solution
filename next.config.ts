@@ -21,7 +21,7 @@ const nextConfig = {
       };
     }
 
-    // Externalize TensorFlow and MediaPipe packages on server to avoid bundling issues
+    // Externalize TensorFlow packages on server to avoid bundling issues
     if (isServer) {
       config.externals = config.externals || [];
       config.externals.push({
@@ -29,7 +29,6 @@ const nextConfig = {
         '@tensorflow/tfjs-node': 'commonjs @tensorflow/tfjs-node',
         '@tensorflow/tfjs-backend-wasm': 'commonjs @tensorflow/tfjs-backend-wasm',
         '@tensorflow-models/body-segmentation': 'commonjs @tensorflow-models/body-segmentation',
-        '@mediapipe/selfie_segmentation': 'commonjs @mediapipe/selfie_segmentation',
       });
     }
 
