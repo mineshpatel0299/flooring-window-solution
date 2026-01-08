@@ -120,12 +120,12 @@ export function TexturePreviewCanvas({
     <div className="relative w-full h-full flex items-center justify-center bg-muted rounded-lg overflow-hidden">
       {isRendering && (
         <div className="absolute inset-0 flex items-center justify-center bg-black/20 z-10">
-          <div className="w-8 h-8 border-4 border-white/20 border-t-white rounded-full animate-spin" />
+          <div className="w-6 h-6 sm:w-8 sm:h-8 border-4 border-white/20 border-t-white rounded-full animate-spin" />
         </div>
       )}
 
       {error && (
-        <div className="absolute top-4 left-4 right-4 bg-destructive/10 border border-destructive text-destructive px-4 py-2 rounded-md text-sm">
+        <div className="absolute top-2 sm:top-4 left-2 sm:left-4 right-2 sm:right-4 bg-destructive/10 border border-destructive text-destructive px-3 sm:px-4 py-2 rounded-md text-xs sm:text-sm">
           {error}
         </div>
       )}
@@ -133,11 +133,14 @@ export function TexturePreviewCanvas({
       <canvas
         ref={canvasRef}
         className="max-w-full max-h-full object-contain"
+        style={{
+          imageRendering: 'high-quality',
+        }}
       />
 
       {!texture && !isRendering && (
-        <div className="absolute inset-0 flex items-center justify-center">
-          <p className="text-muted-foreground text-sm">
+        <div className="absolute inset-0 flex items-center justify-center px-4">
+          <p className="text-muted-foreground text-xs sm:text-sm text-center">
             Select a texture to preview
           </p>
         </div>

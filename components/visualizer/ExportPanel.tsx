@@ -64,8 +64,8 @@ export function ExportPanel({ canvas, projectName = 'visualization' }: ExportPan
 
   if (!canvas) {
     return (
-      <div className="p-4 bg-muted rounded-lg border border-border">
-        <p className="text-sm text-muted-foreground text-center">
+      <div className="p-3 sm:p-4 bg-muted rounded-lg border border-border">
+        <p className="text-xs sm:text-sm text-muted-foreground text-center">
           Complete the visualization to export
         </p>
       </div>
@@ -73,27 +73,28 @@ export function ExportPanel({ canvas, projectName = 'visualization' }: ExportPan
   }
 
   return (
-    <div className="space-y-4 p-4 bg-card border border-border rounded-lg">
-      <h3 className="font-semibold">Export Options</h3>
+    <div className="space-y-3 sm:space-y-4 p-3 sm:p-4 bg-card border border-border rounded-lg">
+      <h3 className="text-sm sm:text-base font-semibold">Export Options</h3>
 
       {/* Format Selection */}
       <div>
-        <label className="block text-sm font-medium mb-2">Format</label>
+        <label className="block text-xs sm:text-sm font-medium mb-2">Format</label>
         <div className="flex gap-2">
           <button
             onClick={() => setFormat('jpeg')}
-            className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-md transition-colors ${
+            className={`flex-1 flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 text-sm rounded-md transition-colors ${
               format === 'jpeg'
                 ? 'bg-primary text-primary-foreground'
                 : 'bg-muted text-muted-foreground hover:bg-muted/80'
             }`}
           >
             <Image className="w-4 h-4" />
-            JPEG
+            <span className="hidden sm:inline">JPEG</span>
+            <span className="sm:hidden">JPG</span>
           </button>
           <button
             onClick={() => setFormat('png')}
-            className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-md transition-colors ${
+            className={`flex-1 flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 text-sm rounded-md transition-colors ${
               format === 'png'
                 ? 'bg-primary text-primary-foreground'
                 : 'bg-muted text-muted-foreground hover:bg-muted/80'
@@ -103,7 +104,7 @@ export function ExportPanel({ canvas, projectName = 'visualization' }: ExportPan
             PNG
           </button>
         </div>
-        <p className="text-xs text-muted-foreground mt-1">
+        <p className="text-xs text-muted-foreground mt-1.5">
           {format === 'jpeg'
             ? 'Smaller file size, good for sharing'
             : 'Higher quality, larger file size'}
@@ -113,7 +114,7 @@ export function ExportPanel({ canvas, projectName = 'visualization' }: ExportPan
       {/* Quality Selection (JPEG only) */}
       {format === 'jpeg' && (
         <div>
-          <label className="block text-sm font-medium mb-2">
+          <label className="block text-xs sm:text-sm font-medium mb-2">
             Quality: {Math.round(quality * 100)}%
           </label>
           <div className="space-y-2">
@@ -139,16 +140,16 @@ export function ExportPanel({ canvas, projectName = 'visualization' }: ExportPan
         <button
           onClick={handleExport}
           disabled={isExporting}
-          className="w-full inline-flex items-center justify-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors disabled:opacity-50"
+          className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors disabled:opacity-50"
         >
           <Download className="w-4 h-4" />
-          {isExporting ? 'Exporting...' : `Download as ${format.toUpperCase()}`}
+          {isExporting ? 'Exporting...' : `Download ${format.toUpperCase()}`}
         </button>
 
         <button
           onClick={handleCopyToClipboard}
           disabled={isExporting}
-          className="w-full inline-flex items-center justify-center gap-2 px-4 py-2 bg-muted text-muted-foreground rounded-md hover:bg-muted/80 transition-colors disabled:opacity-50"
+          className="w-full inline-flex items-center justify-center gap-2 px-4 py-2 text-sm bg-muted text-muted-foreground rounded-md hover:bg-muted/80 transition-colors disabled:opacity-50"
         >
           {copied ? (
             <>
@@ -158,7 +159,8 @@ export function ExportPanel({ canvas, projectName = 'visualization' }: ExportPan
           ) : (
             <>
               <Copy className="w-4 h-4" />
-              Copy to Clipboard
+              <span className="hidden sm:inline">Copy to Clipboard</span>
+              <span className="sm:hidden">Copy</span>
             </>
           )}
         </button>
@@ -166,8 +168,8 @@ export function ExportPanel({ canvas, projectName = 'visualization' }: ExportPan
 
       {/* Info */}
       <div className="pt-2 border-t border-border">
-        <p className="text-xs text-muted-foreground">
-          Image dimensions: {canvas.width} × {canvas.height}px
+        <p className="text-xs text-muted-foreground break-all">
+          {canvas.width} × {canvas.height}px
         </p>
       </div>
     </div>
