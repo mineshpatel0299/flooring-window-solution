@@ -1,6 +1,7 @@
 'use client';
 
 import { useRef, useEffect, useState, useCallback } from 'react';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { applyTextureOverlay, drawMaskOverlay, drawPerspectiveHandles } from '@/lib/canvas/overlay';
 import { downloadCanvas } from '@/lib/canvas/export';
 import { DEFAULT_CANVAS_SETTINGS } from '@/lib/constants';
@@ -10,6 +11,8 @@ interface CanvasEditorProps {
   originalImageUrl: string;
   segmentationMask?: SegmentationData;
   selectedTexture?: Texture | null;
+  availableTextures?: Texture[];
+  onTextureChange?: (texture: Texture) => void;
   settings?: CanvasSettings;
   onSettingsChange?: (settings: CanvasSettings) => void;
   onCanvasReady?: (canvas: HTMLCanvasElement) => void;
@@ -19,6 +22,8 @@ export function CanvasEditor({
   originalImageUrl,
   segmentationMask,
   selectedTexture,
+  availableTextures = [],
+  onTextureChange,
   settings: propSettings,
   onSettingsChange,
   onCanvasReady,
@@ -38,6 +43,7 @@ export function CanvasEditor({
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const textureScrollRef = useRef<HTMLDivElement>(null);
 
   // Sync settings from props
   useEffect(() => {
@@ -172,32 +178,6 @@ export function CanvasEditor({
     setIsDragging(false);
   }, []);
 
-  // Touch handlers for mobile
-  const handleTouchStart = useCallback((e: React.TouchEvent) => {
-    if (e.touches.length === 1) {
-      const touch = e.touches[0];
-      setIsDragging(true);
-      setDragStart({ x: touch.clientX - pan.x, y: touch.clientY - pan.y });
-    }
-  }, [pan]);
-
-  const handleTouchMove = useCallback(
-    (e: React.TouchEvent) => {
-      if (isDragging && e.touches.length === 1) {
-        const touch = e.touches[0];
-        setPan({
-          x: touch.clientX - dragStart.x,
-          y: touch.clientY - dragStart.y,
-        });
-      }
-    },
-    [isDragging, dragStart]
-  );
-
-  const handleTouchEnd = useCallback(() => {
-    setIsDragging(false);
-  }, []);
-
   // Export functions
   const handleExport = async (format: 'jpeg' | 'png' = 'jpeg') => {
     if (!canvasRef.current) return;
@@ -220,6 +200,24 @@ export function CanvasEditor({
       }, 0);
     }
   }, [settings, onSettingsChange]);
+
+  // Texture carousel scroll functions
+  const scrollTextures = useCallback((direction: 'left' | 'right') => {
+    if (textureScrollRef.current) {
+      const scrollAmount = 200;
+      textureScrollRef.current.scrollBy({
+        left: direction === 'left' ? -scrollAmount : scrollAmount,
+        behavior: 'smooth',
+      });
+    }
+  }, []);
+
+  // Handle texture selection
+  const handleTextureSelect = useCallback((texture: Texture) => {
+    if (onTextureChange) {
+      onTextureChange(texture);
+    }
+  }, [onTextureChange]);
 
   // Notify when canvas is ready
   useEffect(() => {
@@ -286,6 +284,70 @@ export function CanvasEditor({
           </button>
         </div>
 
+        {/* Texture Carousel - Quick Texture Switching */}
+        {availableTextures.length > 0 && (
+          <div className="space-y-2">
+            <label className="text-xs sm:text-sm font-medium">
+              Quick Texture Switch
+            </label>
+            <div className="relative">
+              {/* Left scroll button */}
+              <button
+                onClick={() => scrollTextures('left')}
+                className="absolute left-0 top-1/2 -translate-y-1/2 z-10 p-1 bg-background/90 border border-border rounded-full shadow-sm hover:bg-muted transition-colors"
+                aria-label="Scroll left"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+
+              {/* Texture thumbnails */}
+              <div
+                ref={textureScrollRef}
+                className="flex gap-2 overflow-x-auto scrollbar-hide px-8 py-1"
+                style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+              >
+                {availableTextures.map((texture) => (
+                  <button
+                    key={texture.id}
+                    onClick={() => handleTextureSelect(texture)}
+                    className={`relative shrink-0 w-14 h-14 sm:w-16 sm:h-16 rounded-md overflow-hidden border-2 transition-all ${
+                      selectedTexture?.id === texture.id
+                        ? 'border-primary ring-2 ring-primary/30'
+                        : 'border-border hover:border-primary/50'
+                    }`}
+                    title={texture.name}
+                  >
+                    <img
+                      src={texture.thumbnail_url || texture.image_url}
+                      alt={texture.name}
+                      className="w-full h-full object-cover"
+                    />
+                    {selectedTexture?.id === texture.id && (
+                      <div className="absolute inset-0 bg-primary/20 flex items-center justify-center">
+                        <div className="w-2 h-2 bg-primary rounded-full" />
+                      </div>
+                    )}
+                  </button>
+                ))}
+              </div>
+
+              {/* Right scroll button */}
+              <button
+                onClick={() => scrollTextures('right')}
+                className="absolute right-0 top-1/2 -translate-y-1/2 z-10 p-1 bg-background/90 border border-border rounded-full shadow-sm hover:bg-muted transition-colors"
+                aria-label="Scroll right"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+            {selectedTexture && (
+              <p className="text-xs text-muted-foreground text-center">
+                Current: {selectedTexture.name}
+              </p>
+            )}
+          </div>
+        )}
+
         {/* Export Buttons */}
         <div className="flex flex-col sm:flex-row gap-2">
           <button
@@ -311,15 +373,12 @@ export function CanvasEditor({
 
       {/* Canvas Container */}
       <div
-        className="flex-1 overflow-hidden bg-muted relative min-h-75 sm:min-h-100 lg:min-h-125 touch-none"
+        className="flex-1 overflow-hidden bg-muted relative min-h-75 sm:min-h-100 lg:min-h-125"
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseUp}
         onWheel={handleWheel}
-        onTouchStart={handleTouchStart}
-        onTouchMove={handleTouchMove}
-        onTouchEnd={handleTouchEnd}
       >
         <div
           className="absolute inset-0 flex items-center justify-center p-2 sm:p-4"

@@ -13,6 +13,7 @@ import { ExportPanel } from '@/components/visualizer/ExportPanel';
 import { ProjectSaver } from '@/components/visualizer/ProjectSaver';
 import { useProject } from '@/hooks/useProject';
 import { useImageUpload } from '@/hooks/useImageUpload';
+import { useTextures } from '@/hooks/useTextures';
 import type { SegmentationData, Texture, CanvasSettings } from '@/types';
 
 type WorkflowStep = 'upload' | 'segment' | 'select-texture' | 'edit' | 'export';
@@ -24,6 +25,9 @@ function FloorVisualizerContent() {
 
   const { loadProject } = useProject();
   const { upload: uploadImage } = useImageUpload();
+
+  // Fetch available textures for quick switching
+  const { textures: availableTextures } = useTextures({ type: 'floor', limit: 50 });
 
   // Workflow state
   const [currentStep, setCurrentStep] = useState<WorkflowStep>('upload');
@@ -365,6 +369,8 @@ function FloorVisualizerContent() {
                 originalImageUrl={originalImageUrl}
                 segmentationMask={segmentationData}
                 selectedTexture={selectedTexture}
+                availableTextures={availableTextures}
+                onTextureChange={setSelectedTexture}
                 settings={canvasSettings}
                 onSettingsChange={setCanvasSettings}
                 onCanvasReady={handleCanvasReady}
