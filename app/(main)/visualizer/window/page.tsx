@@ -13,6 +13,7 @@ import { ExportPanel } from '@/components/visualizer/ExportPanel';
 import { ProjectSaver } from '@/components/visualizer/ProjectSaver';
 import { useProject } from '@/hooks/useProject';
 import { useImageUpload } from '@/hooks/useImageUpload';
+import { useTextures } from '@/hooks/useTextures';
 import type { SegmentationData, Texture, CanvasSettings } from '@/types';
 
 type WorkflowStep = 'upload' | 'segment' | 'select-texture' | 'edit' | 'export';
@@ -24,6 +25,9 @@ function WindowVisualizerContent() {
 
   const { loadProject } = useProject();
   const { upload: uploadImage } = useImageUpload();
+
+  // Fetch available textures for quick switching
+  const { textures: availableTextures } = useTextures({ type: 'window', limit: 50 });
 
   // Workflow state
   const [currentStep, setCurrentStep] = useState<WorkflowStep>('upload');
@@ -138,18 +142,18 @@ function WindowVisualizerContent() {
     <div className="min-h-screen bg-background">
       {/* Header */}
       <div className="border-b border-border bg-card">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
+        <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-3 sm:py-4">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 sm:gap-4 min-w-0">
               <button
                 onClick={() => router.push('/')}
-                className="p-2 hover:bg-muted rounded-md transition-colors"
+                className="p-1.5 sm:p-2 hover:bg-muted rounded-md transition-colors shrink-0"
               >
-                <ArrowLeft className="w-5 h-5" />
+                <ArrowLeft className="w-4 h-4 sm:w-5 sm:h-5" />
               </button>
-              <div>
-                <h1 className="text-2xl font-bold">Window Films Visualizer</h1>
-                <p className="text-sm text-muted-foreground">
+              <div className="min-w-0">
+                <h1 className="text-lg sm:text-2xl font-bold truncate">Window Films Visualizer</h1>
+                <p className="text-xs sm:text-sm text-muted-foreground hidden sm:block">
                   Upload a photo and visualize different window film options
                 </p>
               </div>
@@ -157,9 +161,10 @@ function WindowVisualizerContent() {
             {currentStep !== 'upload' && (
               <button
                 onClick={handleStartOver}
-                className="px-4 py-2 text-sm bg-muted text-muted-foreground rounded-md hover:bg-muted/80 transition-colors"
+                className="px-3 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm bg-muted text-muted-foreground rounded-md hover:bg-muted/80 transition-colors shrink-0"
               >
-                Start Over
+                <span className="hidden sm:inline">Start Over</span>
+                <span className="sm:hidden">Reset</span>
               </button>
             )}
           </div>
@@ -168,8 +173,9 @@ function WindowVisualizerContent() {
 
       {/* Progress Steps */}
       <div className="border-b border-border bg-muted/30">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3">
-          <div className="flex items-center justify-center gap-2">
+        <div className="max-w-7xl mx-auto px-2 sm:px-4 lg:px-8 py-2 sm:py-3">
+          {/* Desktop view - horizontal */}
+          <div className="hidden md:flex items-center justify-center gap-2">
             {[
               { step: 'upload', icon: Upload, label: 'Upload' },
               { step: 'segment', icon: Sparkles, label: 'AI Detection' },
@@ -193,6 +199,36 @@ function WindowVisualizerContent() {
                 </div>
                 {index < 4 && (
                   <div className="w-8 h-0.5 bg-border mx-1" />
+                )}
+              </div>
+            ))}
+          </div>
+
+          {/* Mobile view - compact icons with labels */}
+          <div className="flex md:hidden items-center justify-center gap-1.5 overflow-x-auto">
+            {[
+              { step: 'upload', icon: Upload, label: 'Upload' },
+              { step: 'segment', icon: Sparkles, label: 'AI' },
+              { step: 'select-texture', icon: Palette, label: 'Film' },
+              { step: 'edit', icon: Camera, label: 'Edit' },
+              { step: 'export', icon: Download, label: 'Export' },
+            ].map(({ step, icon: Icon, label }, index) => (
+              <div key={step} className="flex items-center shrink-0">
+                <div
+                  className={`flex flex-col items-center gap-1 px-2 py-1.5 rounded-md transition-colors min-w-14 ${
+                    currentStep === step
+                      ? 'bg-primary text-primary-foreground'
+                      : ['upload', 'segment', 'select-texture', 'edit'].indexOf(currentStep) >
+                        ['upload', 'segment', 'select-texture', 'edit'].indexOf(step as WorkflowStep)
+                      ? 'bg-primary/20 text-primary'
+                      : 'bg-muted text-muted-foreground'
+                  }`}
+                >
+                  <Icon className="w-4 h-4" />
+                  <span className="text-[10px] font-medium">{label}</span>
+                </div>
+                {index < 4 && (
+                  <div className="w-3 h-0.5 bg-border mx-0.5" />
                 )}
               </div>
             ))}
@@ -262,17 +298,17 @@ function WindowVisualizerContent() {
 
         {/* Step 3: Select Texture */}
         {currentStep === 'select-texture' && originalImageUrl && segmentationData && (
-          <div className="space-y-6">
-            <div className="text-center mb-8">
-              <h2 className="text-2xl font-bold mb-2">Choose a Window Film</h2>
-              <p className="text-muted-foreground">
+          <div className="space-y-4 sm:space-y-6">
+            <div className="text-center mb-4 sm:mb-8">
+              <h2 className="text-xl sm:text-2xl font-bold mb-2">Choose a Window Film</h2>
+              <p className="text-sm sm:text-base text-muted-foreground">
                 Browse and select from our collection of window film options
               </p>
             </div>
 
-            <div className="grid lg:grid-cols-[400px_1fr] gap-6">
+            <div className="grid lg:grid-cols-[350px_1fr] gap-4 sm:gap-6">
               {/* Texture Selector */}
-              <div className="h-150 border border-border rounded-lg overflow-hidden bg-card">
+              <div className="h-80 sm:h-96 lg:h-125 border border-border rounded-lg overflow-hidden bg-card order-2 lg:order-1">
                 <TextureSelector
                   mode="window"
                   selectedId={selectedTexture?.id || null}
@@ -281,11 +317,11 @@ function WindowVisualizerContent() {
               </div>
 
               {/* Live Preview */}
-              <div className="h-150 border border-border rounded-lg overflow-hidden bg-card p-4">
+              <div className="h-64 sm:h-80 lg:h-125 border border-border rounded-lg overflow-hidden bg-card p-3 sm:p-4 order-1 lg:order-2">
                 <div className="h-full flex flex-col">
-                  <div className="mb-4">
-                    <h3 className="text-lg font-semibold">Live Preview</h3>
-                    <p className="text-sm text-muted-foreground">
+                  <div className="mb-2 sm:mb-4">
+                    <h3 className="text-base sm:text-lg font-semibold">Live Preview</h3>
+                    <p className="text-xs sm:text-sm text-muted-foreground truncate">
                       {selectedTexture
                         ? `Previewing: ${selectedTexture.name}`
                         : 'Select a film to see preview'}
@@ -306,10 +342,10 @@ function WindowVisualizerContent() {
 
             {/* Continue Button */}
             {selectedTexture && (
-              <div className="flex justify-center pt-4">
+              <div className="flex justify-center pt-2 sm:pt-4">
                 <button
                   onClick={() => setCurrentStep('edit')}
-                  className="px-8 py-3 bg-primary text-primary-foreground rounded-md hover:opacity-90 font-medium"
+                  className="w-full sm:w-auto px-8 py-3 bg-primary text-primary-foreground rounded-md hover:opacity-90 font-medium"
                 >
                   Continue to Editor
                 </button>
@@ -320,11 +356,11 @@ function WindowVisualizerContent() {
 
         {/* Step 4: Canvas Editor */}
         {currentStep === 'edit' && originalImageUrl && segmentationData && selectedTexture && (
-          <div className="grid lg:grid-cols-[1fr_320px] gap-6">
-            <div className="space-y-4">
+          <div className="grid lg:grid-cols-[1fr_300px] gap-4 sm:gap-6">
+            <div className="space-y-3 sm:space-y-4 order-2 lg:order-1">
               <div className="text-center lg:text-left">
-                <h2 className="text-2xl font-bold mb-2">Preview & Adjust</h2>
-                <p className="text-muted-foreground">
+                <h2 className="text-xl sm:text-2xl font-bold mb-1 sm:mb-2">Preview & Adjust</h2>
+                <p className="text-sm sm:text-base text-muted-foreground">
                   Fine-tune the visualization to your liking
                 </p>
               </div>
@@ -333,13 +369,15 @@ function WindowVisualizerContent() {
                 originalImageUrl={originalImageUrl}
                 segmentationMask={segmentationData}
                 selectedTexture={selectedTexture}
+                availableTextures={availableTextures}
+                onTextureChange={setSelectedTexture}
                 settings={canvasSettings}
                 onSettingsChange={setCanvasSettings}
                 onCanvasReady={handleCanvasReady}
               />
             </div>
 
-            <div className="space-y-4">
+            <div className="space-y-3 sm:space-y-4 order-1 lg:order-2">
               {/* Export Panel */}
               <ExportPanel
                 canvas={canvasRef}
@@ -348,12 +386,12 @@ function WindowVisualizerContent() {
 
               {/* Project Saver */}
               {originalImageUrl && segmentationData && selectedTexture && (
-                <div className="p-4 bg-card border border-border rounded-lg">
-                  <h3 className="font-semibold mb-3">Save Project</h3>
+                <div className="p-3 sm:p-4 bg-card border border-border rounded-lg">
+                  <h3 className="font-semibold mb-2 sm:mb-3 text-sm sm:text-base">Save Project</h3>
                   <ProjectSaver
                     type="window"
                     originalImageUrl={originalImageUrl}
-                    processedImageUrl={processedImageUrl}
+                    processedImageUrl={processedImageUrl ?? undefined}
                     segmentationData={segmentationData}
                     textureId={selectedTexture.id}
                     canvasSettings={canvasSettings}
@@ -363,11 +401,11 @@ function WindowVisualizerContent() {
               )}
 
               {/* Change Texture */}
-              <div className="p-4 bg-card border border-border rounded-lg">
-                <h3 className="font-semibold mb-3">Change Film</h3>
+              <div className="p-3 sm:p-4 bg-card border border-border rounded-lg">
+                <h3 className="font-semibold mb-2 sm:mb-3 text-sm sm:text-base">Change Film</h3>
                 <button
                   onClick={() => setCurrentStep('select-texture')}
-                  className="w-full px-4 py-2 bg-muted text-muted-foreground rounded-md hover:bg-muted/80 transition-colors"
+                  className="w-full px-4 py-2 text-sm bg-muted text-muted-foreground rounded-md hover:bg-muted/80 transition-colors"
                 >
                   Browse Films
                 </button>

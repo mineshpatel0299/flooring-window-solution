@@ -81,32 +81,33 @@ export function TextureSelector({
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="p-4 border-b border-border space-y-4">
+      <div className="p-2 sm:p-4 border-b border-border space-y-2 sm:space-y-4">
         {/* Search Bar */}
         <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <Search className="absolute left-2.5 sm:left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <input
             type="text"
             placeholder="Search textures..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 bg-background border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-ring"
+            className="w-full pl-8 sm:pl-10 pr-3 sm:pr-4 py-1.5 sm:py-2 text-sm bg-background border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-ring"
           />
         </div>
 
         {/* Filters */}
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
           {/* Featured Filter */}
           <button
             onClick={() => setShowFeatured(!showFeatured)}
-            className={`px-3 py-1.5 text-sm rounded-md transition-colors flex items-center gap-1.5 ${
+            className={`px-2 sm:px-3 py-1 sm:py-1.5 text-xs sm:text-sm rounded-md transition-colors flex items-center gap-1 sm:gap-1.5 ${
               showFeatured
                 ? 'bg-primary text-primary-foreground'
                 : 'bg-secondary text-secondary-foreground hover:bg-secondary/80'
             }`}
           >
-            <Star className={`w-3.5 h-3.5 ${showFeatured ? 'fill-current' : ''}`} />
-            Featured
+            <Star className={`w-3 h-3 sm:w-3.5 sm:h-3.5 ${showFeatured ? 'fill-current' : ''}`} />
+            <span className="hidden xs:inline">Featured</span>
+            <span className="xs:hidden">★</span>
           </button>
 
           {/* Category Filters */}
@@ -114,7 +115,7 @@ export function TextureSelector({
             <>
               <button
                 onClick={() => setCategoryFilter(null)}
-                className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
+                className={`px-2 sm:px-3 py-1 sm:py-1.5 text-xs sm:text-sm rounded-md transition-colors ${
                   !categoryFilter
                     ? 'bg-primary text-primary-foreground'
                     : 'bg-secondary text-secondary-foreground hover:bg-secondary/80'
@@ -122,11 +123,11 @@ export function TextureSelector({
               >
                 All
               </button>
-              {categories.map((category) => (
+              {categories.slice(0, 3).map((category) => (
                 <button
                   key={category}
                   onClick={() => setCategoryFilter(category)}
-                  className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
+                  className={`px-2 sm:px-3 py-1 sm:py-1.5 text-xs sm:text-sm rounded-md transition-colors truncate max-w-20 sm:max-w-none ${
                     categoryFilter === category
                       ? 'bg-primary text-primary-foreground'
                       : 'bg-secondary text-secondary-foreground hover:bg-secondary/80'
@@ -135,66 +136,69 @@ export function TextureSelector({
                   {category}
                 </button>
               ))}
+              {categories.length > 3 && (
+                <span className="text-xs text-muted-foreground">+{categories.length - 3}</span>
+              )}
             </>
           )}
 
           {/* View Mode Toggle */}
-          <div className="ml-auto flex gap-1 bg-secondary rounded-md p-1">
+          <div className="ml-auto flex gap-0.5 sm:gap-1 bg-secondary rounded-md p-0.5 sm:p-1">
             <button
               onClick={() => setViewMode('grid')}
-              className={`p-1.5 rounded transition-colors ${
+              className={`p-1 sm:p-1.5 rounded transition-colors ${
                 viewMode === 'grid'
                   ? 'bg-background shadow-sm'
                   : 'hover:bg-background/50'
               }`}
               title="Grid View"
             >
-              <Grid3x3 className="w-4 h-4" />
+              <Grid3x3 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             </button>
             <button
               onClick={() => setViewMode('list')}
-              className={`p-1.5 rounded transition-colors ${
+              className={`p-1 sm:p-1.5 rounded transition-colors ${
                 viewMode === 'list'
                   ? 'bg-background shadow-sm'
                   : 'hover:bg-background/50'
               }`}
               title="List View"
             >
-              <List className="w-4 h-4" />
+              <List className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             </button>
           </div>
         </div>
 
         {/* Results Count */}
-        <div className="text-sm text-muted-foreground">
+        <div className="text-xs sm:text-sm text-muted-foreground">
           {filteredTextures.length} {filteredTextures.length === 1 ? 'texture' : 'textures'} found
         </div>
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto p-4">
+      <div className="flex-1 overflow-y-auto p-2 sm:p-4">
         {isLoading && textures.length === 0 ? (
-          <div className="flex items-center justify-center h-64">
-            <div className="text-center space-y-3">
-              <Loader2 className="w-8 h-8 animate-spin text-primary mx-auto" />
-              <p className="text-sm text-muted-foreground">Loading textures...</p>
+          <div className="flex items-center justify-center h-48 sm:h-64">
+            <div className="text-center space-y-2 sm:space-y-3">
+              <Loader2 className="w-6 h-6 sm:w-8 sm:h-8 animate-spin text-primary mx-auto" />
+              <p className="text-xs sm:text-sm text-muted-foreground">Loading textures...</p>
             </div>
           </div>
         ) : error ? (
-          <div className="flex items-center justify-center h-64">
-            <div className="text-center space-y-3 max-w-md">
-              <p className="text-destructive font-medium">Failed to load textures</p>
-              <p className="text-sm text-muted-foreground">{error.message}</p>
+          <div className="flex items-center justify-center h-48 sm:h-64">
+            <div className="text-center space-y-2 sm:space-y-3 max-w-md px-4">
+              <p className="text-destructive font-medium text-sm sm:text-base">Failed to load textures</p>
+              <p className="text-xs sm:text-sm text-muted-foreground">{error.message}</p>
             </div>
           </div>
         ) : filteredTextures.length === 0 ? (
-          <div className="flex items-center justify-center h-64">
+          <div className="flex items-center justify-center h-48 sm:h-64">
             <div className="text-center space-y-2">
-              <p className="text-muted-foreground">No textures found</p>
+              <p className="text-muted-foreground text-sm">No textures found</p>
               {searchQuery && (
                 <button
                   onClick={() => setSearchQuery('')}
-                  className="text-sm text-primary hover:underline"
+                  className="text-xs sm:text-sm text-primary hover:underline"
                 >
                   Clear search
                 </button>
@@ -202,18 +206,18 @@ export function TextureSelector({
             </div>
           </div>
         ) : (
-          <div className="space-y-6">
+          <div className="space-y-4 sm:space-y-6">
             {/* Featured Section */}
             {featuredTextures.length > 0 && !showFeatured && (
               <div>
-                <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
-                  <Star className="w-4 h-4 text-yellow-500 fill-current" />
+                <h3 className="text-xs sm:text-sm font-semibold mb-2 sm:mb-3 flex items-center gap-1.5 sm:gap-2">
+                  <Star className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-yellow-500 fill-current" />
                   Featured Textures
                 </h3>
                 <div
-                  className={`grid gap-4 ${
+                  className={`grid gap-2 sm:gap-4 ${
                     viewMode === 'grid'
-                      ? 'grid-cols-2 md:grid-cols-3 lg:grid-cols-4'
+                      ? 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-4'
                       : 'grid-cols-1'
                   }`}
                 >
@@ -234,12 +238,12 @@ export function TextureSelector({
             {regularTextures.length > 0 && (
               <div>
                 {featuredTextures.length > 0 && !showFeatured && (
-                  <h3 className="text-sm font-semibold mb-3">All Textures</h3>
+                  <h3 className="text-xs sm:text-sm font-semibold mb-2 sm:mb-3">All Textures</h3>
                 )}
                 <div
-                  className={`grid gap-4 ${
+                  className={`grid gap-2 sm:gap-4 ${
                     viewMode === 'grid'
-                      ? 'grid-cols-2 md:grid-cols-3 lg:grid-cols-4'
+                      ? 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-4'
                       : 'grid-cols-1'
                   }`}
                 >
@@ -258,11 +262,11 @@ export function TextureSelector({
 
             {/* Load More */}
             {!propTextures && hasMore && (
-              <div className="flex justify-center py-4">
+              <div className="flex justify-center py-2 sm:py-4">
                 <button
                   onClick={loadMore}
                   disabled={isLoading}
-                  className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                  className="px-3 sm:px-4 py-1.5 sm:py-2 text-sm bg-primary text-primary-foreground rounded-md hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                 >
                   {isLoading ? (
                     <>
