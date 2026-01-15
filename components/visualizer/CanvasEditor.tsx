@@ -257,7 +257,8 @@ export function CanvasEditor({
             }
             className="w-full px-3 py-2 text-sm bg-background border border-input rounded-md"
           >
-            <option value="multiply">Multiply (Recommended)</option>
+            <option value="replace">Replace (Full Texture)</option>
+            <option value="multiply">Multiply</option>
             <option value="overlay">Overlay</option>
             <option value="normal">Normal</option>
           </select>

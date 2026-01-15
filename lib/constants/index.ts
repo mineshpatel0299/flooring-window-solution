@@ -35,6 +35,7 @@ export const VISUALIZATION_TYPES = {
 
 // Blend modes for canvas overlay
 export const BLEND_MODES = {
+  REPLACE: 'replace',
   MULTIPLY: 'multiply',
   OVERLAY: 'overlay',
   NORMAL: 'normal',
@@ -42,8 +43,8 @@ export const BLEND_MODES = {
 
 // Default canvas settings
 export const DEFAULT_CANVAS_SETTINGS = {
-  opacity: 0.85,
-  blendMode: BLEND_MODES.MULTIPLY,
+  opacity: 1,
+  blendMode: BLEND_MODES.REPLACE,
   zoom: 1,
   pan: { x: 0, y: 0 },
 };

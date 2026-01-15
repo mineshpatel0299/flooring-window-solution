@@ -1,7 +1,7 @@
 // Core application types
 
 export type VisualizationType = 'floor' | 'window';
-export type BlendMode = 'multiply' | 'overlay' | 'normal';
+export type BlendMode = 'multiply' | 'overlay' | 'normal' | 'replace';
 
 // Texture types
 export interface Texture {

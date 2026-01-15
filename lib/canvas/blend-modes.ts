@@ -55,6 +55,24 @@ export function applyBlendMode(
           blendedB = overlayBlend(baseB, overlayB);
           break;
 
+        case 'replace':
+          // Complete replacement - texture fully replaces the floor
+          // Apply mask-based blending at edges only
+          if (maskValue >= 0.95) {
+            // Fully inside the mask - use texture directly
+            result.data[index] = overlayR;
+            result.data[index + 1] = overlayG;
+            result.data[index + 2] = overlayB;
+            result.data[index + 3] = baseA;
+          } else {
+            // At edges - blend for smooth transition
+            result.data[index] = Math.round(baseR * (1 - maskValue) + overlayR * maskValue);
+            result.data[index + 1] = Math.round(baseG * (1 - maskValue) + overlayG * maskValue);
+            result.data[index + 2] = Math.round(baseB * (1 - maskValue) + overlayB * maskValue);
+            result.data[index + 3] = baseA;
+          }
+          continue;
+
         case 'normal':
         default:
           blendedR = overlayR;
