@@ -32,21 +32,26 @@ export async function detectFloor(
     // Step 2: Region grow from bottom, stopping at edges
     let mask = regionGrowWithEdges(imageData, edgeMap, width, height);
 
-    // Step 3: Remove thin vertical structures (furniture legs)
-    mask = removeThinStructures(mask, width, height);
+    // Step 3: Fill gaps first before removing structures
+    mask = morphologicalClose(mask, 7); // Fill gaps between detected regions
 
-    // Step 4: Morphological cleanup
-    mask = morphologicalOpen(mask, 5); // Remove small protrusions
-    mask = morphologicalClose(mask, 5); // Fill small gaps
+    // Step 4: Remove thin vertical structures (furniture legs)
+    mask = removeThinStructures(mask, width, height);
 
     // Step 5: Keep largest component
     mask = keepLargestComponent(mask, width, height);
 
-    // Step 6: Remove narrow vertical protrusions again after cleanup
+    // Step 6: Remove narrow vertical protrusions
     mask = removeVerticalProtrusions(mask, width, height);
 
-    // Step 7: Fill holes and smooth
+    // Step 7: Fill holes
     mask = fillHoles(mask, width, height);
+
+    // Step 8: Final cleanup - small opening to remove noise, then close to fill small gaps
+    mask = morphologicalOpen(mask, 3);
+    mask = morphologicalClose(mask, 5);
+
+    // Step 9: Smooth edges
     mask = smoothEdges(mask, 2);
 
     const confidence = calculateConfidence(mask, width, height);
@@ -153,8 +158,8 @@ function regionGrowWithEdges(
   const mask: number[][] = Array(height).fill(null).map(() => Array(width).fill(0));
   const visited: boolean[][] = Array(height).fill(null).map(() => Array(width).fill(false));
 
-  const colorThreshold = 30;
-  const edgeThreshold = 0.25; // Stop at edges stronger than this
+  const colorThreshold = 40; // Increased for more coverage
+  const edgeThreshold = 0.35; // Higher = less sensitive to edges, captures more floor
 
   type QueueItem = {
     y: number;
@@ -165,12 +170,12 @@ function regionGrowWithEdges(
 
   const queue: QueueItem[] = [];
 
-  // Seed from bottom rows
-  const seedStartY = Math.floor(height * 0.92);
+  // Seed from bottom rows - wider area
+  const seedStartY = Math.floor(height * 0.85); // Start higher
   for (let y = seedStartY; y < height; y++) {
-    for (let x = Math.floor(width * 0.1); x < Math.floor(width * 0.9); x += 3) {
-      // Skip if there's an edge here
-      if (edgeMap[y][x] > edgeThreshold) continue;
+    for (let x = Math.floor(width * 0.05); x < Math.floor(width * 0.95); x += 2) {
+      // Skip only very strong edges
+      if (edgeMap[y][x] > edgeThreshold * 1.5) continue;
 
       const color = getPixel(data, width, x, y);
       queue.push({ y, x, parentColor: color, depth: 0 });
@@ -185,21 +190,21 @@ function regionGrowWithEdges(
 
     visited[y][x] = true;
 
-    // Stop at strong edges
+    // Stop at very strong edges only
     if (edgeMap[y][x] > edgeThreshold) continue;
 
     const currentColor = getPixel(data, width, x, y);
     const diff = colorDiff(currentColor, parentColor);
 
-    // Adaptive threshold - stricter as we go up
-    const positionFactor = 0.6 + 0.4 * (y / height);
-    const depthFactor = Math.max(0.6, 1 - depth * 0.001);
+    // Adaptive threshold - more lenient overall
+    const positionFactor = 0.7 + 0.3 * (y / height);
+    const depthFactor = Math.max(0.7, 1 - depth * 0.0005);
     const threshold = colorThreshold * positionFactor * depthFactor;
 
     if (diff <= threshold) {
       mask[y][x] = 1;
 
-      // Only add neighbors if we're not at a strong edge boundary
+      // Add all neighbors
       const neighbors = [
         { dy: -1, dx: 0 },
         { dy: 1, dx: 0 },
@@ -212,7 +217,7 @@ function regionGrowWithEdges(
         const nx = x + dx;
 
         if (ny >= 0 && ny < height && nx >= 0 && nx < width && !visited[ny][nx]) {
-          // Don't cross strong edges
+          // Allow crossing weaker edges
           if (edgeMap[ny][nx] <= edgeThreshold) {
             queue.push({ y: ny, x: nx, parentColor: currentColor, depth: depth + 1 });
           }
@@ -226,7 +231,7 @@ function regionGrowWithEdges(
 
 /**
  * Remove thin vertical structures (furniture legs)
- * A thin structure is one where the horizontal width is small
+ * Only removes very narrow, tall structures that are clearly legs
  */
 function removeThinStructures(
   mask: number[][],
@@ -234,7 +239,7 @@ function removeThinStructures(
   height: number
 ): number[][] {
   const result: number[][] = mask.map(row => [...row]);
-  const minWidth = Math.max(15, Math.floor(width * 0.04)); // Minimum 4% of image width
+  const minWidth = Math.max(10, Math.floor(width * 0.025)); // Narrower threshold - 2.5% of image
 
   // For each column, check if it's part of a thin vertical structure
   for (let x = 0; x < width; x++) {
@@ -245,29 +250,30 @@ function removeThinStructures(
       let leftExtent = 0;
       let rightExtent = 0;
 
-      for (let dx = 1; dx <= minWidth && x - dx >= 0; dx++) {
+      for (let dx = 1; dx <= minWidth * 2 && x - dx >= 0; dx++) {
         if (mask[y][x - dx] === 1) leftExtent++;
         else break;
       }
 
-      for (let dx = 1; dx <= minWidth && x + dx < width; dx++) {
+      for (let dx = 1; dx <= minWidth * 2 && x + dx < width; dx++) {
         if (mask[y][x + dx] === 1) rightExtent++;
         else break;
       }
 
       const totalWidth = leftExtent + 1 + rightExtent;
 
-      // If the horizontal extent is too narrow, it's likely a furniture leg
+      // Only remove if VERY narrow (likely a leg)
       if (totalWidth < minWidth) {
-        // Check if this narrow section extends vertically (characteristic of legs)
+        // Check if this narrow section extends significantly vertically
         let verticalExtent = 0;
-        for (let dy = 1; dy <= 30 && y - dy >= 0; dy++) {
+        for (let dy = 1; dy <= 50 && y - dy >= 0; dy++) {
           if (mask[y - dy][x] === 1) verticalExtent++;
           else break;
         }
 
-        // If it's narrow AND vertically extended, remove it
-        if (verticalExtent > totalWidth * 2) {
+        // Only remove if it's narrow AND extends vertically more than 3x its width
+        // This ensures we only remove clear furniture legs
+        if (verticalExtent > totalWidth * 3) {
           result[y][x] = 0;
         }
       }
@@ -279,7 +285,7 @@ function removeThinStructures(
 
 /**
  * Remove vertical protrusions from the top of the floor mask
- * These are typically furniture legs that weren't caught earlier
+ * Only removes very narrow isolated segments that are clearly not floor
  */
 function removeVerticalProtrusions(
   mask: number[][],
@@ -288,11 +294,12 @@ function removeVerticalProtrusions(
 ): number[][] {
   const result: number[][] = mask.map(row => [...row]);
 
-  // Find the main floor body by looking at horizontal connectivity
-  // Scan from top to bottom
-  for (let y = 0; y < height; y++) {
+  // Only check the top portion of the image where protrusions would be
+  const checkUntilY = Math.floor(height * 0.6);
+
+  for (let y = 0; y < checkUntilY; y++) {
     // Count continuous horizontal segments in this row
-    let segments: { start: number; end: number }[] = [];
+    const segments: { start: number; end: number }[] = [];
     let inSegment = false;
     let segStart = 0;
 
@@ -309,8 +316,8 @@ function removeVerticalProtrusions(
       segments.push({ start: segStart, end: width - 1 });
     }
 
-    // Remove narrow segments that are isolated (likely legs)
-    const minSegmentWidth = Math.max(20, Math.floor(width * 0.05));
+    // Only remove VERY narrow segments (< 3% of width)
+    const minSegmentWidth = Math.max(12, Math.floor(width * 0.03));
 
     for (const seg of segments) {
       const segWidth = seg.end - seg.start + 1;
@@ -319,12 +326,12 @@ function removeVerticalProtrusions(
         // Check if this connects to a wider area below
         let connectsToWider = false;
 
-        for (let checkY = y + 1; checkY < Math.min(y + 20, height); checkY++) {
+        for (let checkY = y + 1; checkY < Math.min(y + 30, height); checkY++) {
           let belowWidth = 0;
-          for (let x = Math.max(0, seg.start - 10); x <= Math.min(width - 1, seg.end + 10); x++) {
+          for (let x = Math.max(0, seg.start - 15); x <= Math.min(width - 1, seg.end + 15); x++) {
             if (mask[checkY][x] === 1) belowWidth++;
           }
-          if (belowWidth > minSegmentWidth) {
+          if (belowWidth > minSegmentWidth * 2) {
             connectsToWider = true;
             break;
           }
