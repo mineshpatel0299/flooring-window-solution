@@ -57,18 +57,25 @@ export function applyBlendMode(
 
         case 'replace':
           // Complete replacement - texture fully replaces the floor
-          // Apply mask-based blending at edges only
-          if (maskValue >= 0.95) {
-            // Fully inside the mask - use texture directly
+          // Use texture directly wherever mask has any value
+          if (maskValue > 0.5) {
+            // Inside the mask - use pure texture
             result.data[index] = overlayR;
             result.data[index + 1] = overlayG;
             result.data[index + 2] = overlayB;
             result.data[index + 3] = baseA;
+          } else if (maskValue > 0) {
+            // Edge pixels - slight blend for anti-aliasing only
+            const blendFactor = maskValue * 2; // Scale 0-0.5 to 0-1
+            result.data[index] = Math.round(baseR * (1 - blendFactor) + overlayR * blendFactor);
+            result.data[index + 1] = Math.round(baseG * (1 - blendFactor) + overlayG * blendFactor);
+            result.data[index + 2] = Math.round(baseB * (1 - blendFactor) + overlayB * blendFactor);
+            result.data[index + 3] = baseA;
           } else {
-            // At edges - blend for smooth transition
-            result.data[index] = Math.round(baseR * (1 - maskValue) + overlayR * maskValue);
-            result.data[index + 1] = Math.round(baseG * (1 - maskValue) + overlayG * maskValue);
-            result.data[index + 2] = Math.round(baseB * (1 - maskValue) + overlayB * maskValue);
+            // Outside mask - keep original
+            result.data[index] = baseR;
+            result.data[index + 1] = baseG;
+            result.data[index + 2] = baseB;
             result.data[index + 3] = baseA;
           }
           continue;

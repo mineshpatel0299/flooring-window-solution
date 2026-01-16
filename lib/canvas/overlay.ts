@@ -47,17 +47,22 @@ export async function applyTextureOverlay(
   // Get texture image data
   let textureData = imageToImageData(transformedTexture);
 
-  // Preserve lighting from original image
-  textureData = preserveLighting(textureData, originalData, 0.5);
+  // For "replace" mode, use pure texture without lighting preservation
+  // For other modes, preserve some lighting from the original image for realism
+  if (settings.blendMode !== 'replace') {
+    textureData = preserveLighting(textureData, originalData, 0.5);
+  }
 
-  // Feather the mask edges for smoother blending
-  const featheredMask = featherMask(segmentationData.mask, 2);
+  // Feather the mask edges for smoother blending (skip for replace mode)
+  const finalMask = settings.blendMode === 'replace'
+    ? segmentationData.mask
+    : featherMask(segmentationData.mask, 2);
 
   // Apply blend mode
   const blendedData = applyBlendMode(
     originalData,
     textureData,
-    featheredMask,
+    finalMask,
     settings.blendMode,
     settings.opacity
   );
