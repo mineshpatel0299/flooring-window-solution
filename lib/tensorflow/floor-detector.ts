@@ -1,44 +1,69 @@
-import { segmentImage, scaleMask } from './segmentation';
+import { scaleMask } from './segmentation';
 import type { SegmentationData } from '@/types';
 
 /**
- * Detect floor area in an image
- * Uses body segmentation to identify the background (floor)
- * Then applies additional filtering to exclude objects and focus on floor surfaces
+ * Detect floor area in an image using color-based segmentation
+ * This approach samples colors from the bottom of the image (likely floor)
+ * and finds similar colored regions while excluding objects
  */
 export async function detectFloor(
   image: HTMLImageElement
 ): Promise<SegmentationData> {
   try {
-    console.log('Detecting floor area...');
+    console.log('Detecting floor area with color-based segmentation...');
 
-    // Segment the image (invert mask to get background/floor)
-    const segmentationData = await segmentImage(image, true);
+    // Create canvas and get image data
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d')!;
 
-    // Get edge map to detect objects (objects have more edges than flat floors)
-    const edgeMap = detectEdges(image);
+    // Use smaller dimensions for faster processing
+    const maxDim = 800;
+    const scale = Math.min(maxDim / image.width, maxDim / image.height, 1);
+    const width = Math.floor(image.width * scale);
+    const height = Math.floor(image.height * scale);
 
-    // Additional floor-specific processing
-    // Focus on the bottom portion of the image where floors typically are
-    // and exclude areas with high edge density (likely objects)
-    const enhancedMask = enhanceFloorDetection(
-      segmentationData.mask,
-      edgeMap,
-      segmentationData.width,
-      segmentationData.height
-    );
+    canvas.width = width;
+    canvas.height = height;
+    ctx.drawImage(image, 0, 0, width, height);
 
-    // Apply floor-specific cleanup to remove object regions
-    const cleanedMask = cleanupFloorMask(enhancedMask);
+    const imageData = ctx.getImageData(0, 0, width, height);
+
+    // Step 1: Sample floor colors from bottom portion of image
+    const floorColors = sampleFloorColors(imageData, width, height);
+    console.log(`Sampled ${floorColors.length} floor color clusters`);
+
+    // Step 2: Create initial mask based on color similarity
+    let mask = createColorBasedMask(imageData, width, height, floorColors);
+
+    // Step 3: Apply edge detection to exclude objects
+    const edgeMap = detectEdges(imageData, width, height);
+    mask = applyEdgeFilter(mask, edgeMap, width, height);
+
+    // Step 4: Apply position weighting (floor is at bottom)
+    mask = applyPositionWeighting(mask, width, height);
+
+    // Step 5: Morphological cleanup
+    mask = morphologicalClose(mask, 5);
+    mask = morphologicalOpen(mask, 3);
+
+    // Step 6: Keep only floor-connected components
+    mask = keepFloorComponents(mask, width, height);
+
+    // Step 7: Fill holes in the floor mask
+    mask = fillHoles(mask, width, height);
+
+    // Calculate confidence
+    const confidence = calculateConfidence(mask);
+    console.log(`Floor detection complete. Confidence: ${(confidence * 100).toFixed(2)}%`);
 
     // Scale mask to original image dimensions
-    const scaledMask = scaleMask(cleanedMask, image.width, image.height);
+    const scaledMask = scaleMask(mask, image.width, image.height);
 
     return {
-      ...segmentationData,
       mask: scaledMask,
       width: image.width,
       height: image.height,
+      confidence,
     };
   } catch (error) {
     console.error('Error detecting floor:', error);
@@ -47,39 +72,257 @@ export async function detectFloor(
 }
 
 /**
- * Detect edges in the image using Sobel-like filter
- * Returns a 2D array where higher values = more edges
+ * Color cluster for floor detection
  */
-function detectEdges(image: HTMLImageElement): number[][] {
-  const canvas = document.createElement('canvas');
-  const ctx = canvas.getContext('2d')!;
+interface ColorCluster {
+  r: number;
+  g: number;
+  b: number;
+  h: number;
+  s: number;
+  l: number;
+  count: number;
+}
 
-  // Use smaller dimensions for faster processing
-  const maxDim = 512;
-  const scale = Math.min(maxDim / image.width, maxDim / image.height, 1);
-  const width = Math.floor(image.width * scale);
-  const height = Math.floor(image.height * scale);
+/**
+ * Sample colors from the bottom portion of the image (likely floor area)
+ */
+function sampleFloorColors(
+  imageData: ImageData,
+  width: number,
+  height: number
+): ColorCluster[] {
+  const data = imageData.data;
+  const colors: ColorCluster[] = [];
 
-  canvas.width = width;
-  canvas.height = height;
-  ctx.drawImage(image, 0, 0, width, height);
+  // Sample from bottom 25% of image, middle 60% horizontally
+  const startY = Math.floor(height * 0.75);
+  const endY = height;
+  const startX = Math.floor(width * 0.2);
+  const endX = Math.floor(width * 0.8);
 
-  const imageData = ctx.getImageData(0, 0, width, height);
+  // Collect color samples
+  const samples: { r: number; g: number; b: number }[] = [];
+  const step = 4; // Sample every 4th pixel for speed
+
+  for (let y = startY; y < endY; y += step) {
+    for (let x = startX; x < endX; x += step) {
+      const i = (y * width + x) * 4;
+      samples.push({
+        r: data[i],
+        g: data[i + 1],
+        b: data[i + 2],
+      });
+    }
+  }
+
+  // Cluster similar colors using simple k-means-like approach
+  const clusters = clusterColors(samples, 5);
+
+  // Convert to HSL and filter out very dark or very bright clusters
+  for (const cluster of clusters) {
+    const hsl = rgbToHsl(cluster.r, cluster.g, cluster.b);
+    cluster.h = hsl.h;
+    cluster.s = hsl.s;
+    cluster.l = hsl.l;
+
+    // Keep clusters that have reasonable brightness (not too dark/bright)
+    if (cluster.l > 0.1 && cluster.l < 0.95) {
+      colors.push(cluster);
+    }
+  }
+
+  // Sort by count (most common colors first)
+  colors.sort((a, b) => b.count - a.count);
+
+  // Return top 3 most common floor colors
+  return colors.slice(0, 3);
+}
+
+/**
+ * Simple color clustering algorithm
+ */
+function clusterColors(
+  samples: { r: number; g: number; b: number }[],
+  numClusters: number
+): ColorCluster[] {
+  if (samples.length === 0) {
+    return [];
+  }
+
+  // Initialize clusters with random samples
+  const clusters: ColorCluster[] = [];
+  const step = Math.floor(samples.length / numClusters);
+
+  for (let i = 0; i < numClusters; i++) {
+    const sample = samples[i * step] || samples[0];
+    clusters.push({
+      r: sample.r,
+      g: sample.g,
+      b: sample.b,
+      h: 0,
+      s: 0,
+      l: 0,
+      count: 0,
+    });
+  }
+
+  // Run a few iterations of k-means
+  for (let iter = 0; iter < 5; iter++) {
+    // Reset counts
+    for (const cluster of clusters) {
+      cluster.count = 0;
+    }
+
+    const sums = clusters.map(() => ({ r: 0, g: 0, b: 0, count: 0 }));
+
+    // Assign samples to nearest cluster
+    for (const sample of samples) {
+      let minDist = Infinity;
+      let nearestIdx = 0;
+
+      for (let i = 0; i < clusters.length; i++) {
+        const dist = colorDistance(sample, clusters[i]);
+        if (dist < minDist) {
+          minDist = dist;
+          nearestIdx = i;
+        }
+      }
+
+      sums[nearestIdx].r += sample.r;
+      sums[nearestIdx].g += sample.g;
+      sums[nearestIdx].b += sample.b;
+      sums[nearestIdx].count++;
+    }
+
+    // Update cluster centers
+    for (let i = 0; i < clusters.length; i++) {
+      if (sums[i].count > 0) {
+        clusters[i].r = Math.round(sums[i].r / sums[i].count);
+        clusters[i].g = Math.round(sums[i].g / sums[i].count);
+        clusters[i].b = Math.round(sums[i].b / sums[i].count);
+        clusters[i].count = sums[i].count;
+      }
+    }
+  }
+
+  return clusters.filter((c) => c.count > 0);
+}
+
+/**
+ * Calculate color distance in RGB space
+ */
+function colorDistance(
+  c1: { r: number; g: number; b: number },
+  c2: { r: number; g: number; b: number }
+): number {
+  // Use weighted Euclidean distance (human perception weighted)
+  const dr = c1.r - c2.r;
+  const dg = c1.g - c2.g;
+  const db = c1.b - c2.b;
+  return Math.sqrt(2 * dr * dr + 4 * dg * dg + 3 * db * db);
+}
+
+/**
+ * Convert RGB to HSL
+ */
+function rgbToHsl(r: number, g: number, b: number): { h: number; s: number; l: number } {
+  r /= 255;
+  g /= 255;
+  b /= 255;
+
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const l = (max + min) / 2;
+
+  let h = 0;
+  let s = 0;
+
+  if (max !== min) {
+    const d = max - min;
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+
+    switch (max) {
+      case r:
+        h = ((g - b) / d + (g < b ? 6 : 0)) / 6;
+        break;
+      case g:
+        h = ((b - r) / d + 2) / 6;
+        break;
+      case b:
+        h = ((r - g) / d + 4) / 6;
+        break;
+    }
+  }
+
+  return { h, s, l };
+}
+
+/**
+ * Create mask based on color similarity to floor colors
+ */
+function createColorBasedMask(
+  imageData: ImageData,
+  width: number,
+  height: number,
+  floorColors: ColorCluster[]
+): number[][] {
+  const data = imageData.data;
+  const mask: number[][] = [];
+
+  // Color distance threshold (adjust for sensitivity)
+  const threshold = 60;
+
+  for (let y = 0; y < height; y++) {
+    const row: number[] = [];
+    for (let x = 0; x < width; x++) {
+      const i = (y * width + x) * 4;
+      const pixel = {
+        r: data[i],
+        g: data[i + 1],
+        b: data[i + 2],
+      };
+
+      // Check if pixel matches any floor color
+      let isFloor = false;
+      for (const floorColor of floorColors) {
+        const dist = colorDistance(pixel, floorColor);
+        if (dist < threshold) {
+          isFloor = true;
+          break;
+        }
+      }
+
+      row.push(isFloor ? 1 : 0);
+    }
+    mask.push(row);
+  }
+
+  return mask;
+}
+
+/**
+ * Detect edges using Sobel filter
+ */
+function detectEdges(
+  imageData: ImageData,
+  width: number,
+  height: number
+): number[][] {
   const data = imageData.data;
 
-  // Convert to grayscale array
+  // Convert to grayscale
   const gray: number[][] = [];
   for (let y = 0; y < height; y++) {
     const row: number[] = [];
     for (let x = 0; x < width; x++) {
       const i = (y * width + x) * 4;
-      // Luminance formula
       row.push(0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]);
     }
     gray.push(row);
   }
 
-  // Apply simple edge detection (gradient magnitude)
+  // Apply Sobel filter
   const edges: number[][] = [];
   for (let y = 0; y < height; y++) {
     const row: number[] = [];
@@ -89,14 +332,14 @@ function detectEdges(image: HTMLImageElement): number[][] {
         continue;
       }
 
-      // Sobel-like operators
-      const gx = -gray[y - 1][x - 1] - 2 * gray[y][x - 1] - gray[y + 1][x - 1] +
-                  gray[y - 1][x + 1] + 2 * gray[y][x + 1] + gray[y + 1][x + 1];
-      const gy = -gray[y - 1][x - 1] - 2 * gray[y - 1][x] - gray[y - 1][x + 1] +
-                  gray[y + 1][x - 1] + 2 * gray[y + 1][x] + gray[y + 1][x + 1];
+      const gx =
+        -gray[y - 1][x - 1] - 2 * gray[y][x - 1] - gray[y + 1][x - 1] +
+        gray[y - 1][x + 1] + 2 * gray[y][x + 1] + gray[y + 1][x + 1];
+      const gy =
+        -gray[y - 1][x - 1] - 2 * gray[y - 1][x] - gray[y - 1][x + 1] +
+        gray[y + 1][x - 1] + 2 * gray[y + 1][x] + gray[y + 1][x + 1];
 
       const magnitude = Math.sqrt(gx * gx + gy * gy);
-      // Normalize to 0-1
       row.push(Math.min(magnitude / 255, 1));
     }
     edges.push(row);
@@ -106,133 +349,339 @@ function detectEdges(image: HTMLImageElement): number[][] {
 }
 
 /**
- * Enhance floor detection by focusing on bottom portion of image
- * and excluding areas with high edge density (likely objects, not floor)
+ * Filter out areas with high edge density (likely objects)
  */
-function enhanceFloorDetection(
+function applyEdgeFilter(
   mask: number[][],
   edgeMap: number[][],
   width: number,
   height: number
 ): number[][] {
-  const enhanced: number[][] = [];
-
-  // Scale factors for edge map to mask dimensions
-  const edgeHeight = edgeMap.length;
-  const edgeWidth = edgeMap[0].length;
-  const scaleX = edgeWidth / width;
-  const scaleY = edgeHeight / height;
-
-  // Floor is typically in the bottom 70% of the image
-  // We'll use a gradient approach - more likely to be floor as we go down
-  const floorStartY = Math.floor(height * 0.3);
+  const result: number[][] = [];
+  const edgeThreshold = 0.2;
 
   for (let y = 0; y < height; y++) {
     const row: number[] = [];
     for (let x = 0; x < width; x++) {
-      let value = mask[y][x];
+      const edgeValue = edgeMap[y][x];
 
-      // Get edge value at this position
-      const edgeY = Math.min(Math.floor(y * scaleY), edgeHeight - 1);
-      const edgeX = Math.min(Math.floor(x * scaleX), edgeWidth - 1);
-      const edgeValue = edgeMap[edgeY] ? edgeMap[edgeY][edgeX] || 0 : 0;
-
-      // Calculate position weight - higher weight for bottom of image
-      const positionWeight = y >= floorStartY
-        ? 1 + ((y - floorStartY) / (height - floorStartY)) * 0.5
-        : (y / floorStartY) * 0.5;
-
-      // Reduce confidence for areas with high edge density (objects have more edges)
-      // Floors are typically smooth with low edge density
-      const edgeThreshold = 0.15;
+      // If high edge density, reduce likelihood of being floor
       if (edgeValue > edgeThreshold) {
-        // High edge area - likely an object, not floor
-        value = value * Math.max(0, 1 - (edgeValue - edgeThreshold) * 3);
+        row.push(0);
+      } else {
+        row.push(mask[y][x]);
       }
-
-      // Apply position weight
-      value = value * positionWeight;
-
-      // Areas above the floor start line are very unlikely to be floor
-      if (y < floorStartY * 0.7) {
-        value = 0;
-      }
-
-      row.push(value > 0.5 ? 1 : 0);
     }
-    enhanced.push(row);
+    result.push(row);
   }
 
-  return enhanced;
+  return result;
 }
 
 /**
- * Additional cleanup to remove small disconnected regions (likely objects)
- * and keep only the largest floor region connected to the bottom of the image
+ * Apply position weighting - floor is typically at the bottom
  */
-function cleanupFloorMask(mask: number[][]): number[][] {
+function applyPositionWeighting(
+  mask: number[][],
+  width: number,
+  height: number
+): number[][] {
+  const result: number[][] = [];
+
+  // Floor typically starts around 30-40% from top
+  const floorStartRatio = 0.35;
+  const floorStartY = Math.floor(height * floorStartRatio);
+
+  for (let y = 0; y < height; y++) {
+    const row: number[] = [];
+    for (let x = 0; x < width; x++) {
+      if (y < floorStartY) {
+        // Above floor line - unlikely to be floor
+        row.push(0);
+      } else {
+        // Below floor line - keep the mask value
+        row.push(mask[y][x]);
+      }
+    }
+    result.push(row);
+  }
+
+  return result;
+}
+
+/**
+ * Morphological closing (dilate then erode)
+ */
+function morphologicalClose(mask: number[][], kernelSize: number): number[][] {
+  let result = dilate(mask, kernelSize);
+  result = erode(result, kernelSize);
+  return result;
+}
+
+/**
+ * Morphological opening (erode then dilate)
+ */
+function morphologicalOpen(mask: number[][], kernelSize: number): number[][] {
+  let result = erode(mask, kernelSize);
+  result = dilate(result, kernelSize);
+  return result;
+}
+
+/**
+ * Dilate operation
+ */
+function dilate(mask: number[][], kernelSize: number): number[][] {
   const height = mask.length;
   const width = mask[0].length;
+  const result: number[][] = [];
+  const half = Math.floor(kernelSize / 2);
 
-  // Find all connected components
-  const visited: boolean[][] = Array(height).fill(null).map(() => Array(width).fill(false));
-  const components: { pixels: [number, number][]; touchesBottom: boolean }[] = [];
+  for (let y = 0; y < height; y++) {
+    const row: number[] = [];
+    for (let x = 0; x < width; x++) {
+      let maxVal = 0;
+      for (let ky = -half; ky <= half; ky++) {
+        for (let kx = -half; kx <= half; kx++) {
+          const ny = y + ky;
+          const nx = x + kx;
+          if (ny >= 0 && ny < height && nx >= 0 && nx < width) {
+            maxVal = Math.max(maxVal, mask[ny][nx]);
+          }
+        }
+      }
+      row.push(maxVal);
+    }
+    result.push(row);
+  }
 
-  function floodFill(startY: number, startX: number): { pixels: [number, number][]; touchesBottom: boolean } {
+  return result;
+}
+
+/**
+ * Erode operation
+ */
+function erode(mask: number[][], kernelSize: number): number[][] {
+  const height = mask.length;
+  const width = mask[0].length;
+  const result: number[][] = [];
+  const half = Math.floor(kernelSize / 2);
+
+  for (let y = 0; y < height; y++) {
+    const row: number[] = [];
+    for (let x = 0; x < width; x++) {
+      let minVal = 1;
+      for (let ky = -half; ky <= half; ky++) {
+        for (let kx = -half; kx <= half; kx++) {
+          const ny = y + ky;
+          const nx = x + kx;
+          if (ny >= 0 && ny < height && nx >= 0 && nx < width) {
+            minVal = Math.min(minVal, mask[ny][nx]);
+          }
+        }
+      }
+      row.push(minVal);
+    }
+    result.push(row);
+  }
+
+  return result;
+}
+
+/**
+ * Keep only components that are connected to the bottom of the image
+ * This filters out floating objects
+ */
+function keepFloorComponents(
+  mask: number[][],
+  width: number,
+  height: number
+): number[][] {
+  const visited: boolean[][] = Array(height)
+    .fill(null)
+    .map(() => Array(width).fill(false));
+
+  const result: number[][] = Array(height)
+    .fill(null)
+    .map(() => Array(width).fill(0));
+
+  // Flood fill from bottom edge to find floor-connected pixels
+  function floodFill(startY: number, startX: number): [number, number][] {
     const stack: [number, number][] = [[startY, startX]];
-    const pixels: [number, number][] = [];
-    let touchesBottom = false;
+    const component: [number, number][] = [];
 
     while (stack.length > 0) {
       const [y, x] = stack.pop()!;
 
-      if (y < 0 || y >= height || x < 0 || x >= width || visited[y][x] || mask[y][x] === 0) {
+      if (
+        y < 0 ||
+        y >= height ||
+        x < 0 ||
+        x >= width ||
+        visited[y][x] ||
+        mask[y][x] === 0
+      ) {
         continue;
       }
 
       visited[y][x] = true;
-      pixels.push([y, x]);
-
-      // Check if this component touches the bottom of the image
-      if (y >= height - 5) {
-        touchesBottom = true;
-      }
+      component.push([y, x]);
 
       stack.push([y - 1, x], [y + 1, x], [y, x - 1], [y, x + 1]);
     }
 
-    return { pixels, touchesBottom };
+    return component;
   }
 
-  // Find all components
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      if (mask[y][x] === 1 && !visited[y][x]) {
-        components.push(floodFill(y, x));
+  // Start flood fill from bottom row
+  const bottomRow = height - 1;
+  const components: [number, number][][] = [];
+
+  for (let x = 0; x < width; x++) {
+    if (mask[bottomRow][x] === 1 && !visited[bottomRow][x]) {
+      const component = floodFill(bottomRow, x);
+      if (component.length > 0) {
+        components.push(component);
       }
     }
   }
 
-  // Keep only components that touch the bottom of the image and are large enough
-  // This filters out objects that are floating in the middle of the image
-  const minComponentSize = (width * height) * 0.01; // At least 1% of image
+  // Also check near-bottom rows (last 5%)
+  const nearBottom = Math.floor(height * 0.95);
+  for (let y = nearBottom; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      if (mask[y][x] === 1 && !visited[y][x]) {
+        const component = floodFill(y, x);
+        if (component.length > 0) {
+          components.push(component);
+        }
+      }
+    }
+  }
 
-  const result: number[][] = Array(height).fill(null).map(() => Array(width).fill(0));
+  // Keep components that are large enough (at least 5% of image)
+  const minSize = (width * height) * 0.05;
 
   for (const component of components) {
-    // Keep if it touches bottom AND is large enough
-    // OR if it's very large (more than 10% of image)
-    const isLargeEnough = component.pixels.length > minComponentSize;
-    const isVeryLarge = component.pixels.length > (width * height) * 0.1;
+    if (component.length >= minSize) {
+      for (const [y, x] of component) {
+        result[y][x] = 1;
+      }
+    }
+  }
 
-    if ((component.touchesBottom && isLargeEnough) || isVeryLarge) {
-      for (const [y, x] of component.pixels) {
+  // If no floor found from bottom, find largest component overall
+  if (components.length === 0 || components.every((c) => c.length < minSize)) {
+    // Reset visited
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        visited[y][x] = false;
+      }
+    }
+
+    let largestComponent: [number, number][] = [];
+
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        if (mask[y][x] === 1 && !visited[y][x]) {
+          const component = floodFill(y, x);
+          if (component.length > largestComponent.length) {
+            largestComponent = component;
+          }
+        }
+      }
+    }
+
+    for (const [y, x] of largestComponent) {
+      result[y][x] = 1;
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Fill small holes in the floor mask
+ */
+function fillHoles(
+  mask: number[][],
+  width: number,
+  height: number
+): number[][] {
+  const result: number[][] = mask.map((row) => [...row]);
+
+  // Find holes (background pixels surrounded by floor pixels)
+  const visited: boolean[][] = Array(height)
+    .fill(null)
+    .map(() => Array(width).fill(false));
+
+  // Mark all background pixels connected to edge as visited
+  function markEdgeConnected(startY: number, startX: number): void {
+    const stack: [number, number][] = [[startY, startX]];
+
+    while (stack.length > 0) {
+      const [y, x] = stack.pop()!;
+
+      if (
+        y < 0 ||
+        y >= height ||
+        x < 0 ||
+        x >= width ||
+        visited[y][x] ||
+        mask[y][x] === 1
+      ) {
+        continue;
+      }
+
+      visited[y][x] = true;
+      stack.push([y - 1, x], [y + 1, x], [y, x - 1], [y, x + 1]);
+    }
+  }
+
+  // Start from all edges
+  for (let x = 0; x < width; x++) {
+    if (mask[0][x] === 0) markEdgeConnected(0, x);
+    if (mask[height - 1][x] === 0) markEdgeConnected(height - 1, x);
+  }
+  for (let y = 0; y < height; y++) {
+    if (mask[y][0] === 0) markEdgeConnected(y, 0);
+    if (mask[y][width - 1] === 0) markEdgeConnected(y, width - 1);
+  }
+
+  // Fill unvisited background pixels (holes)
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      if (mask[y][x] === 0 && !visited[y][x]) {
         result[y][x] = 1;
       }
     }
   }
 
   return result;
+}
+
+/**
+ * Calculate confidence score
+ */
+function calculateConfidence(mask: number[][]): number {
+  let sum = 0;
+  let count = 0;
+
+  for (const row of mask) {
+    for (const value of row) {
+      sum += value;
+      count++;
+    }
+  }
+
+  // Confidence based on coverage (floor typically covers 30-70% of image)
+  const coverage = count > 0 ? sum / count : 0;
+
+  // Optimal coverage is around 40-50%
+  if (coverage >= 0.2 && coverage <= 0.7) {
+    return 0.8 + (0.2 * (1 - Math.abs(coverage - 0.45) / 0.45));
+  }
+
+  return Math.max(0.3, coverage);
 }
 
 /**
