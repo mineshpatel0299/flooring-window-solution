@@ -56,20 +56,19 @@ export function applyBlendMode(
           break;
 
         case 'replace':
-          // Complete replacement - texture fully replaces the floor
-          // Use texture directly wherever mask has any value
+          // Complete replacement - texture replaces the floor with opacity control
           if (maskValue > 0.5) {
-            // Inside the mask - use pure texture
-            result.data[index] = overlayR;
-            result.data[index + 1] = overlayG;
-            result.data[index + 2] = overlayB;
+            // Inside the mask - apply texture with opacity
+            result.data[index] = Math.round(baseR * (1 - opacity) + overlayR * opacity);
+            result.data[index + 1] = Math.round(baseG * (1 - opacity) + overlayG * opacity);
+            result.data[index + 2] = Math.round(baseB * (1 - opacity) + overlayB * opacity);
             result.data[index + 3] = baseA;
           } else if (maskValue > 0) {
-            // Edge pixels - slight blend for anti-aliasing only
-            const blendFactor = maskValue * 2; // Scale 0-0.5 to 0-1
-            result.data[index] = Math.round(baseR * (1 - blendFactor) + overlayR * blendFactor);
-            result.data[index + 1] = Math.round(baseG * (1 - blendFactor) + overlayG * blendFactor);
-            result.data[index + 2] = Math.round(baseB * (1 - blendFactor) + overlayB * blendFactor);
+            // Edge pixels - blend for anti-aliasing, also respecting opacity
+            const edgeFactor = maskValue * 2 * opacity; // Scale 0-0.5 to 0-1, then apply opacity
+            result.data[index] = Math.round(baseR * (1 - edgeFactor) + overlayR * edgeFactor);
+            result.data[index + 1] = Math.round(baseG * (1 - edgeFactor) + overlayG * edgeFactor);
+            result.data[index + 2] = Math.round(baseB * (1 - edgeFactor) + overlayB * edgeFactor);
             result.data[index + 3] = baseA;
           } else {
             // Outside mask - keep original

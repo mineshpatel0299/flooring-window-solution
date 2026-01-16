@@ -2,21 +2,19 @@ import { scaleMask } from './segmentation';
 import type { SegmentationData } from '@/types';
 
 /**
- * Detect floor area using region growing from the bottom of the image
- * This approach starts at the bottom (where floors typically are) and
- * grows the region upward based on local color similarity
+ * Detect floor area using region growing with edge-aware stopping
+ * Excludes furniture legs and other vertical objects
  */
 export async function detectFloor(
   image: HTMLImageElement
 ): Promise<SegmentationData> {
   try {
-    console.log('Detecting floor area with region growing...');
+    console.log('Detecting floor area...');
 
-    // Create canvas and get image data
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d')!;
 
-    // Use moderate dimensions for processing
+    // Process at moderate resolution
     const maxDim = 600;
     const scale = Math.min(maxDim / image.width, maxDim / image.height, 1);
     const width = Math.floor(image.width * scale);
@@ -28,27 +26,32 @@ export async function detectFloor(
 
     const imageData = ctx.getImageData(0, 0, width, height);
 
-    // Step 1: Region growing from bottom of image
-    let mask = regionGrowFromBottom(imageData, width, height);
+    // Step 1: Detect edges (furniture legs have strong edges)
+    const edgeMap = detectEdges(imageData, width, height);
 
-    // Step 2: Clean up with morphological operations
-    mask = morphologicalClose(mask, 7);
-    mask = morphologicalOpen(mask, 3);
+    // Step 2: Region grow from bottom, stopping at edges
+    let mask = regionGrowWithEdges(imageData, edgeMap, width, height);
 
-    // Step 3: Keep largest connected component
+    // Step 3: Remove thin vertical structures (furniture legs)
+    mask = removeThinStructures(mask, width, height);
+
+    // Step 4: Morphological cleanup
+    mask = morphologicalOpen(mask, 5); // Remove small protrusions
+    mask = morphologicalClose(mask, 5); // Fill small gaps
+
+    // Step 5: Keep largest component
     mask = keepLargestComponent(mask, width, height);
 
-    // Step 4: Fill holes
+    // Step 6: Remove narrow vertical protrusions again after cleanup
+    mask = removeVerticalProtrusions(mask, width, height);
+
+    // Step 7: Fill holes and smooth
     mask = fillHoles(mask, width, height);
+    mask = smoothEdges(mask, 2);
 
-    // Step 5: Smooth the edges
-    mask = smoothEdges(mask, 3);
-
-    // Calculate confidence
     const confidence = calculateConfidence(mask, width, height);
     console.log(`Floor detection complete. Coverage: ${(confidence * 100).toFixed(1)}%`);
 
-    // Scale mask to original image dimensions
     const scaledMask = scaleMask(mask, image.width, image.height);
 
     return {
@@ -64,35 +67,85 @@ export async function detectFloor(
 }
 
 /**
- * Get pixel color at position
+ * Detect edges using Sobel filter
  */
-function getPixel(data: Uint8ClampedArray, width: number, x: number, y: number): { r: number; g: number; b: number } {
-  const i = (y * width + x) * 4;
-  return {
-    r: data[i],
-    g: data[i + 1],
-    b: data[i + 2],
-  };
+function detectEdges(
+  imageData: ImageData,
+  width: number,
+  height: number
+): number[][] {
+  const data = imageData.data;
+
+  // Convert to grayscale
+  const gray: number[][] = [];
+  for (let y = 0; y < height; y++) {
+    const row: number[] = [];
+    for (let x = 0; x < width; x++) {
+      const i = (y * width + x) * 4;
+      row.push(0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]);
+    }
+    gray.push(row);
+  }
+
+  // Sobel edge detection
+  const edges: number[][] = [];
+  for (let y = 0; y < height; y++) {
+    const row: number[] = [];
+    for (let x = 0; x < width; x++) {
+      if (y === 0 || y === height - 1 || x === 0 || x === width - 1) {
+        row.push(0);
+        continue;
+      }
+
+      // Sobel kernels
+      const gx =
+        -gray[y - 1][x - 1] - 2 * gray[y][x - 1] - gray[y + 1][x - 1] +
+        gray[y - 1][x + 1] + 2 * gray[y][x + 1] + gray[y + 1][x + 1];
+      const gy =
+        -gray[y - 1][x - 1] - 2 * gray[y - 1][x] - gray[y - 1][x + 1] +
+        gray[y + 1][x - 1] + 2 * gray[y + 1][x] + gray[y + 1][x + 1];
+
+      const magnitude = Math.sqrt(gx * gx + gy * gy);
+      row.push(Math.min(magnitude / 200, 1)); // Normalize
+    }
+    edges.push(row);
+  }
+
+  return edges;
 }
 
 /**
- * Calculate color difference between two pixels (CIE76 approximation)
+ * Get pixel color
  */
-function colorDifference(c1: { r: number; g: number; b: number }, c2: { r: number; g: number; b: number }): number {
-  // Weighted Euclidean distance (accounts for human perception)
+function getPixel(
+  data: Uint8ClampedArray,
+  width: number,
+  x: number,
+  y: number
+): { r: number; g: number; b: number } {
+  const i = (y * width + x) * 4;
+  return { r: data[i], g: data[i + 1], b: data[i + 2] };
+}
+
+/**
+ * Color difference (perceptually weighted)
+ */
+function colorDiff(
+  c1: { r: number; g: number; b: number },
+  c2: { r: number; g: number; b: number }
+): number {
   const dr = c1.r - c2.r;
   const dg = c1.g - c2.g;
   const db = c1.b - c2.b;
-
-  // Weight green more as humans are more sensitive to it
   return Math.sqrt(2 * dr * dr + 4 * dg * dg + 3 * db * db) / 3;
 }
 
 /**
- * Region growing algorithm starting from the bottom of the image
+ * Region growing that stops at edges
  */
-function regionGrowFromBottom(
+function regionGrowWithEdges(
   imageData: ImageData,
+  edgeMap: number[][],
   width: number,
   height: number
 ): number[][] {
@@ -100,69 +153,69 @@ function regionGrowFromBottom(
   const mask: number[][] = Array(height).fill(null).map(() => Array(width).fill(0));
   const visited: boolean[][] = Array(height).fill(null).map(() => Array(width).fill(false));
 
-  // Adaptive color threshold based on image variance
-  const baseThreshold = 35;
+  const colorThreshold = 30;
+  const edgeThreshold = 0.25; // Stop at edges stronger than this
 
-  // Create priority queue for region growing (stores [y, x, parentColor])
-  type QueueItem = { y: number; x: number; parentColor: { r: number; g: number; b: number }; depth: number };
+  type QueueItem = {
+    y: number;
+    x: number;
+    parentColor: { r: number; g: number; b: number };
+    depth: number;
+  };
+
   const queue: QueueItem[] = [];
 
-  // Seed points from bottom rows (bottom 5% of image)
-  const seedRowStart = Math.floor(height * 0.95);
-  const seedStep = Math.max(1, Math.floor(width / 30)); // ~30 seed points per row
+  // Seed from bottom rows
+  const seedStartY = Math.floor(height * 0.92);
+  for (let y = seedStartY; y < height; y++) {
+    for (let x = Math.floor(width * 0.1); x < Math.floor(width * 0.9); x += 3) {
+      // Skip if there's an edge here
+      if (edgeMap[y][x] > edgeThreshold) continue;
 
-  for (let y = seedRowStart; y < height; y++) {
-    for (let x = seedStep; x < width - seedStep; x += seedStep) {
       const color = getPixel(data, width, x, y);
       queue.push({ y, x, parentColor: color, depth: 0 });
     }
   }
 
-  // Also add seeds from the very bottom row with finer spacing
-  const bottomY = height - 1;
-  for (let x = 2; x < width - 2; x += Math.max(1, Math.floor(width / 50))) {
-    const color = getPixel(data, width, x, bottomY);
-    queue.push({ y: bottomY, x, parentColor: color, depth: 0 });
-  }
-
-  // Region growing with adaptive threshold
   while (queue.length > 0) {
     const { y, x, parentColor, depth } = queue.shift()!;
 
-    // Bounds check
     if (x < 0 || x >= width || y < 0 || y >= height) continue;
     if (visited[y][x]) continue;
 
     visited[y][x] = true;
 
+    // Stop at strong edges
+    if (edgeMap[y][x] > edgeThreshold) continue;
+
     const currentColor = getPixel(data, width, x, y);
-    const diff = colorDifference(currentColor, parentColor);
+    const diff = colorDiff(currentColor, parentColor);
 
-    // Adaptive threshold: allow more variation near the seed, less as we grow
-    const depthFactor = Math.max(0.5, 1 - depth * 0.002);
-    const threshold = baseThreshold * depthFactor;
+    // Adaptive threshold - stricter as we go up
+    const positionFactor = 0.6 + 0.4 * (y / height);
+    const depthFactor = Math.max(0.6, 1 - depth * 0.001);
+    const threshold = colorThreshold * positionFactor * depthFactor;
 
-    // Position factor: be more strict as we go up (floor is at bottom)
-    const positionFactor = 0.7 + 0.3 * (y / height);
-    const adjustedThreshold = threshold * positionFactor;
-
-    if (diff <= adjustedThreshold) {
+    if (diff <= threshold) {
       mask[y][x] = 1;
 
-      // Add neighbors (4-connectivity for tighter boundaries)
+      // Only add neighbors if we're not at a strong edge boundary
       const neighbors = [
-        { dy: -1, dx: 0 },  // up
-        { dy: 1, dx: 0 },   // down
-        { dy: 0, dx: -1 },  // left
-        { dy: 0, dx: 1 },   // right
+        { dy: -1, dx: 0 },
+        { dy: 1, dx: 0 },
+        { dy: 0, dx: -1 },
+        { dy: 0, dx: 1 },
       ];
 
       for (const { dy, dx } of neighbors) {
         const ny = y + dy;
         const nx = x + dx;
+
         if (ny >= 0 && ny < height && nx >= 0 && nx < width && !visited[ny][nx]) {
-          // Use current pixel color as parent for smoother gradient following
-          queue.push({ y: ny, x: nx, parentColor: currentColor, depth: depth + 1 });
+          // Don't cross strong edges
+          if (edgeMap[ny][nx] <= edgeThreshold) {
+            queue.push({ y: ny, x: nx, parentColor: currentColor, depth: depth + 1 });
+          }
         }
       }
     }
@@ -172,20 +225,139 @@ function regionGrowFromBottom(
 }
 
 /**
- * Morphological closing (dilate then erode) - fills small gaps
+ * Remove thin vertical structures (furniture legs)
+ * A thin structure is one where the horizontal width is small
  */
-function morphologicalClose(mask: number[][], kernelSize: number): number[][] {
-  let result = dilate(mask, kernelSize);
-  result = erode(result, kernelSize);
+function removeThinStructures(
+  mask: number[][],
+  width: number,
+  height: number
+): number[][] {
+  const result: number[][] = mask.map(row => [...row]);
+  const minWidth = Math.max(15, Math.floor(width * 0.04)); // Minimum 4% of image width
+
+  // For each column, check if it's part of a thin vertical structure
+  for (let x = 0; x < width; x++) {
+    for (let y = 0; y < height; y++) {
+      if (mask[y][x] === 0) continue;
+
+      // Measure horizontal extent at this point
+      let leftExtent = 0;
+      let rightExtent = 0;
+
+      for (let dx = 1; dx <= minWidth && x - dx >= 0; dx++) {
+        if (mask[y][x - dx] === 1) leftExtent++;
+        else break;
+      }
+
+      for (let dx = 1; dx <= minWidth && x + dx < width; dx++) {
+        if (mask[y][x + dx] === 1) rightExtent++;
+        else break;
+      }
+
+      const totalWidth = leftExtent + 1 + rightExtent;
+
+      // If the horizontal extent is too narrow, it's likely a furniture leg
+      if (totalWidth < minWidth) {
+        // Check if this narrow section extends vertically (characteristic of legs)
+        let verticalExtent = 0;
+        for (let dy = 1; dy <= 30 && y - dy >= 0; dy++) {
+          if (mask[y - dy][x] === 1) verticalExtent++;
+          else break;
+        }
+
+        // If it's narrow AND vertically extended, remove it
+        if (verticalExtent > totalWidth * 2) {
+          result[y][x] = 0;
+        }
+      }
+    }
+  }
+
   return result;
 }
 
 /**
- * Morphological opening (erode then dilate) - removes small noise
+ * Remove vertical protrusions from the top of the floor mask
+ * These are typically furniture legs that weren't caught earlier
+ */
+function removeVerticalProtrusions(
+  mask: number[][],
+  width: number,
+  height: number
+): number[][] {
+  const result: number[][] = mask.map(row => [...row]);
+
+  // Find the main floor body by looking at horizontal connectivity
+  // Scan from top to bottom
+  for (let y = 0; y < height; y++) {
+    // Count continuous horizontal segments in this row
+    let segments: { start: number; end: number }[] = [];
+    let inSegment = false;
+    let segStart = 0;
+
+    for (let x = 0; x < width; x++) {
+      if (mask[y][x] === 1 && !inSegment) {
+        inSegment = true;
+        segStart = x;
+      } else if (mask[y][x] === 0 && inSegment) {
+        inSegment = false;
+        segments.push({ start: segStart, end: x - 1 });
+      }
+    }
+    if (inSegment) {
+      segments.push({ start: segStart, end: width - 1 });
+    }
+
+    // Remove narrow segments that are isolated (likely legs)
+    const minSegmentWidth = Math.max(20, Math.floor(width * 0.05));
+
+    for (const seg of segments) {
+      const segWidth = seg.end - seg.start + 1;
+
+      if (segWidth < minSegmentWidth) {
+        // Check if this connects to a wider area below
+        let connectsToWider = false;
+
+        for (let checkY = y + 1; checkY < Math.min(y + 20, height); checkY++) {
+          let belowWidth = 0;
+          for (let x = Math.max(0, seg.start - 10); x <= Math.min(width - 1, seg.end + 10); x++) {
+            if (mask[checkY][x] === 1) belowWidth++;
+          }
+          if (belowWidth > minSegmentWidth) {
+            connectsToWider = true;
+            break;
+          }
+        }
+
+        // If it doesn't connect to a wider floor area, remove it
+        if (!connectsToWider) {
+          for (let x = seg.start; x <= seg.end; x++) {
+            result[y][x] = 0;
+          }
+        }
+      }
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Morphological opening (erode then dilate)
  */
 function morphologicalOpen(mask: number[][], kernelSize: number): number[][] {
   let result = erode(mask, kernelSize);
   result = dilate(result, kernelSize);
+  return result;
+}
+
+/**
+ * Morphological closing (dilate then erode)
+ */
+function morphologicalClose(mask: number[][], kernelSize: number): number[][] {
+  let result = dilate(mask, kernelSize);
+  result = erode(result, kernelSize);
   return result;
 }
 
@@ -262,21 +434,17 @@ function keepLargestComponent(
 
     while (stack.length > 0) {
       const [y, x] = stack.pop()!;
-
       if (y < 0 || y >= height || x < 0 || x >= width || visited[y][x] || mask[y][x] === 0) {
         continue;
       }
-
       visited[y][x] = true;
       component.push([y, x]);
-
       stack.push([y - 1, x], [y + 1, x], [y, x - 1], [y, x + 1]);
     }
 
     return component;
   }
 
-  // Find all components and keep the largest
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
       if (mask[y][x] === 1 && !visited[y][x]) {
@@ -288,7 +456,6 @@ function keepLargestComponent(
     }
   }
 
-  // Create result mask with only largest component
   const result: number[][] = Array(height).fill(null).map(() => Array(width).fill(0));
   for (const [y, x] of largestComponent) {
     result[y][x] = 1;
@@ -298,43 +465,35 @@ function keepLargestComponent(
 }
 
 /**
- * Fill holes inside the floor region
+ * Fill holes inside the floor
  */
-function fillHoles(
-  mask: number[][],
-  width: number,
-  height: number
-): number[][] {
+function fillHoles(mask: number[][], width: number, height: number): number[][] {
   const result: number[][] = mask.map(row => [...row]);
   const visited: boolean[][] = Array(height).fill(null).map(() => Array(width).fill(false));
 
-  // Mark all background pixels connected to the edge
   function markEdgeConnected(startY: number, startX: number): void {
     const stack: [number, number][] = [[startY, startX]];
-
     while (stack.length > 0) {
       const [y, x] = stack.pop()!;
-
       if (y < 0 || y >= height || x < 0 || x >= width || visited[y][x] || mask[y][x] === 1) {
         continue;
       }
-
       visited[y][x] = true;
       stack.push([y - 1, x], [y + 1, x], [y, x - 1], [y, x + 1]);
     }
   }
 
-  // Start from all edges
+  // Mark background connected to edges
   for (let x = 0; x < width; x++) {
-    if (mask[0][x] === 0 && !visited[0][x]) markEdgeConnected(0, x);
-    if (mask[height - 1][x] === 0 && !visited[height - 1][x]) markEdgeConnected(height - 1, x);
+    if (mask[0][x] === 0) markEdgeConnected(0, x);
+    if (mask[height - 1][x] === 0) markEdgeConnected(height - 1, x);
   }
   for (let y = 0; y < height; y++) {
-    if (mask[y][0] === 0 && !visited[y][0]) markEdgeConnected(y, 0);
-    if (mask[y][width - 1] === 0 && !visited[y][width - 1]) markEdgeConnected(y, width - 1);
+    if (mask[y][0] === 0) markEdgeConnected(y, 0);
+    if (mask[y][width - 1] === 0) markEdgeConnected(y, width - 1);
   }
 
-  // Fill unvisited background pixels (holes)
+  // Fill unvisited background (holes)
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
       if (mask[y][x] === 0 && !visited[y][x]) {
@@ -347,7 +506,7 @@ function fillHoles(
 }
 
 /**
- * Smooth the edges of the mask using averaging
+ * Smooth edges
  */
 function smoothEdges(mask: number[][], radius: number): number[][] {
   const height = mask.length;
@@ -370,7 +529,6 @@ function smoothEdges(mask: number[][], radius: number): number[][] {
         }
       }
 
-      // Use threshold of 0.5 for binary output
       result[y][x] = sum / count >= 0.5 ? 1 : 0;
     }
   }
@@ -379,23 +537,20 @@ function smoothEdges(mask: number[][], radius: number): number[][] {
 }
 
 /**
- * Calculate confidence/coverage score
+ * Calculate coverage confidence
  */
 function calculateConfidence(mask: number[][], width: number, height: number): number {
   let floorPixels = 0;
-  const totalPixels = width * height;
-
   for (const row of mask) {
     for (const value of row) {
       floorPixels += value;
     }
   }
-
-  return floorPixels / totalPixels;
+  return floorPixels / (width * height);
 }
 
 /**
- * Detect floor boundaries for perspective calculation
+ * Detect floor boundaries
  */
 export function detectFloorBoundaries(mask: number[][]): {
   topLeft: { x: number; y: number };
@@ -406,7 +561,6 @@ export function detectFloorBoundaries(mask: number[][]): {
   const height = mask.length;
   const width = mask[0].length;
 
-  // Find the topmost row with floor pixels
   let topY = -1;
   for (let y = 0; y < height; y++) {
     if (mask[y].some(v => v === 1)) {
@@ -415,7 +569,6 @@ export function detectFloorBoundaries(mask: number[][]): {
     }
   }
 
-  // Find the bottommost row with floor pixels
   let bottomY = -1;
   for (let y = height - 1; y >= 0; y--) {
     if (mask[y].some(v => v === 1)) {
@@ -424,13 +577,9 @@ export function detectFloorBoundaries(mask: number[][]): {
     }
   }
 
-  if (topY === -1 || bottomY === -1) {
-    return null;
-  }
+  if (topY === -1 || bottomY === -1) return null;
 
-  // Find leftmost and rightmost pixels in top row
-  let topLeftX = -1;
-  let topRightX = -1;
+  let topLeftX = -1, topRightX = -1;
   for (let x = 0; x < width; x++) {
     if (mask[topY][x] === 1) {
       if (topLeftX === -1) topLeftX = x;
@@ -438,9 +587,7 @@ export function detectFloorBoundaries(mask: number[][]): {
     }
   }
 
-  // Find leftmost and rightmost pixels in bottom row
-  let bottomLeftX = -1;
-  let bottomRightX = -1;
+  let bottomLeftX = -1, bottomRightX = -1;
   for (let x = 0; x < width; x++) {
     if (mask[bottomY][x] === 1) {
       if (bottomLeftX === -1) bottomLeftX = x;
@@ -448,9 +595,7 @@ export function detectFloorBoundaries(mask: number[][]): {
     }
   }
 
-  if (topLeftX === -1 || bottomLeftX === -1) {
-    return null;
-  }
+  if (topLeftX === -1 || bottomLeftX === -1) return null;
 
   return {
     topLeft: { x: topLeftX, y: topY },
