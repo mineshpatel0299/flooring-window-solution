@@ -48,14 +48,14 @@ export async function detectFloor(
     // Edge detection to exclude furniture legs and sharp edges
     console.log('Detecting edges to exclude furniture...');
     const edges = detectEdges(data, width, height);
-    mask = removeEdgePixels(mask, edges, 0.15); // More aggressive: lower threshold to catch more edges
+    mask = removeEdgePixels(mask, edges, 0.25); // Balanced threshold
 
-    // Additional erosion to remove thin furniture legs that might remain
-    mask = erode(mask, 3);
-    mask = dilate(mask, 3); // Restore floor area
+    // Gentle erosion to remove thin furniture legs without losing floor
+    mask = erode(mask, 2);
+    mask = dilate(mask, 2); // Restore floor area
 
     // Remove small components (likely furniture legs or small objects)
-    const minComponentSize = Math.floor(width * height * 0.02); // 2% of image - larger to exclude more furniture
+    const minComponentSize = Math.floor(width * height * 0.015); // 1.5% - balanced filter
     mask = removeSmallComponents(mask, width, height, minComponentSize);
 
     // Fill gaps with reduced dilation
@@ -496,11 +496,9 @@ function removeEdgePixels(
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
       if (edges[y][x] > threshold) {
-        result[y][x] = 0;
-
-        // Remove more neighboring pixels for better furniture exclusion (2 pixel radius)
-        for (let dy = -2; dy <= 2; dy++) {
-          for (let dx = -2; dx <= 2; dx++) {
+        // Remove neighboring pixels around edges (1 pixel radius for balance)
+        for (let dy = -1; dy <= 1; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
             const ny = y + dy;
             const nx = x + dx;
             if (ny >= 0 && ny < height && nx >= 0 && nx < width) {
