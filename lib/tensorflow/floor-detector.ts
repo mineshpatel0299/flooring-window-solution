@@ -2,7 +2,7 @@ import { scaleMask } from './segmentation';
 import type { SegmentationData } from '@/types';
 
 /**
- * Detect floor area using multiple strategies
+ * Detect floor area using multiple strategies with improved precision
  */
 export async function detectFloor(
   image: HTMLImageElement
@@ -25,29 +25,29 @@ export async function detectFloor(
     const imageData = ctx.getImageData(0, 0, width, height);
     const data = imageData.data;
 
-    // Strategy 1: Flood fill from bottom with very generous threshold
+    // Strategy 1: Flood fill from bottom with conservative threshold
     let mask = floodFillFromBottom(data, width, height);
     let coverage = calculateCoverage(mask);
     console.log(`Flood fill coverage: ${(coverage * 100).toFixed(1)}%`);
 
     // Strategy 2: If flood fill didn't find enough, use bottom region detection
-    if (coverage < 0.15) {
+    if (coverage < 0.08) {
       console.log('Flood fill insufficient, using bottom region strategy...');
       mask = detectBottomRegion(data, width, height);
       coverage = calculateCoverage(mask);
       console.log(`Bottom region coverage: ${(coverage * 100).toFixed(1)}%`);
     }
 
-    // Strategy 3: If still not enough, use horizontal band from bottom
-    if (coverage < 0.1) {
+    // Strategy 3: If still not enough, use horizontal band from bottom (last resort)
+    if (coverage < 0.05) {
       console.log('Using fallback horizontal band strategy...');
-      mask = createBottomBandMask(width, height, 0.4); // Bottom 40%
+      mask = createBottomBandMask(width, height, 0.25); // Bottom 25% only
       coverage = calculateCoverage(mask);
     }
 
-    // Fill gaps
-    mask = dilate(mask, 5);
-    mask = erode(mask, 3);
+    // Fill gaps with reduced dilation
+    mask = dilate(mask, 3);
+    mask = erode(mask, 2);
 
     // Keep largest component
     mask = keepLargestComponent(mask, width, height);
@@ -55,9 +55,9 @@ export async function detectFloor(
     // Fill holes
     mask = fillHoles(mask, width, height);
 
-    // Smooth
-    mask = dilate(mask, 3);
-    mask = erode(mask, 2);
+    // Smooth edges
+    mask = dilate(mask, 2);
+    mask = erode(mask, 1);
 
     coverage = calculateCoverage(mask);
     console.log(`Floor detection complete. Final coverage: ${(coverage * 100).toFixed(1)}%`);
@@ -77,7 +77,7 @@ export async function detectFloor(
 }
 
 /**
- * Detect bottom region based on color similarity
+ * Detect bottom region based on color similarity with improved precision
  */
 function detectBottomRegion(
   data: Uint8ClampedArray,
@@ -86,41 +86,49 @@ function detectBottomRegion(
 ): number[][] {
   const mask: number[][] = Array(height).fill(null).map(() => Array(width).fill(0));
 
-  // Sample colors from multiple points at the bottom
-  const sampleY = height - 3;
-  const samplePoints = [0.2, 0.35, 0.5, 0.65, 0.8];
-  const floorColors: {r: number, g: number, b: number}[] = [];
+  // Sample colors from multiple points at the very bottom (bottom 15%)
+  const sampleStartY = Math.floor(height * 0.85);
+  const samplePoints: { r: number, g: number, b: number }[] = [];
 
-  for (const pct of samplePoints) {
-    const x = Math.floor(width * pct);
-    const i = (sampleY * width + x) * 4;
-    floorColors.push({ r: data[i], g: data[i + 1], b: data[i + 2] });
+  // Sample from multiple rows and columns in bottom region
+  for (let y = sampleStartY; y < height; y += 2) {
+    for (const pct of [0.2, 0.35, 0.5, 0.65, 0.8]) {
+      const x = Math.floor(width * pct);
+      const i = (y * width + x) * 4;
+      samplePoints.push({ r: data[i], g: data[i + 1], b: data[i + 2] });
+    }
   }
 
-  // Calculate average floor color
-  const avgColor = {
-    r: floorColors.reduce((s, c) => s + c.r, 0) / floorColors.length,
-    g: floorColors.reduce((s, c) => s + c.g, 0) / floorColors.length,
-    b: floorColors.reduce((s, c) => s + c.b, 0) / floorColors.length,
+  // Calculate median color (more robust than average)
+  const sortedR = samplePoints.map(c => c.r).sort((a, b) => a - b);
+  const sortedG = samplePoints.map(c => c.g).sort((a, b) => a - b);
+  const sortedB = samplePoints.map(c => c.b).sort((a, b) => a - b);
+  const mid = Math.floor(samplePoints.length / 2);
+
+  const floorColor = {
+    r: sortedR[mid],
+    g: sortedG[mid],
+    b: sortedB[mid],
   };
 
-  // Very generous threshold
-  const threshold = 100;
+  // More conservative threshold
+  const threshold = 60;
 
-  // Mark pixels similar to floor color
-  for (let y = 0; y < height; y++) {
+  // Mark pixels similar to floor color, only in bottom 60% of image
+  const minY = Math.floor(height * 0.4);
+
+  for (let y = minY; y < height; y++) {
     for (let x = 0; x < width; x++) {
       const i = (y * width + x) * 4;
       const r = data[i], g = data[i + 1], b = data[i + 2];
 
       const dist = Math.sqrt(
-        Math.pow(r - avgColor.r, 2) +
-        Math.pow(g - avgColor.g, 2) +
-        Math.pow(b - avgColor.b, 2)
+        Math.pow(r - floorColor.r, 2) +
+        Math.pow(g - floorColor.g, 2) +
+        Math.pow(b - floorColor.b, 2)
       );
 
-      // Only consider bottom 70% of image for floor
-      if (dist < threshold && y > height * 0.3) {
+      if (dist < threshold) {
         mask[y][x] = 1;
       }
     }
@@ -150,7 +158,7 @@ function createBottomBandMask(
 }
 
 /**
- * Flood fill from bottom of image
+ * Flood fill from bottom of image with improved precision
  */
 function floodFillFromBottom(
   data: Uint8ClampedArray,
@@ -160,8 +168,11 @@ function floodFillFromBottom(
   const mask: number[][] = Array(height).fill(null).map(() => Array(width).fill(0));
   const visited: boolean[][] = Array(height).fill(null).map(() => Array(width).fill(false));
 
-  // Very generous color threshold
-  const colorThreshold = 80;
+  // More conservative color threshold for precise detection
+  const colorThreshold = 50;
+
+  // Only fill in bottom 60% of image (floor should be here)
+  const minY = Math.floor(height * 0.4);
 
   // Get pixel color helper
   const getColor = (x: number, y: number) => {
@@ -170,7 +181,7 @@ function floodFillFromBottom(
   };
 
   // Color distance
-  const colorDist = (c1: {r:number,g:number,b:number}, c2: {r:number,g:number,b:number}) => {
+  const colorDist = (c1: { r: number, g: number, b: number }, c2: { r: number, g: number, b: number }) => {
     return Math.sqrt(
       Math.pow(c1.r - c2.r, 2) +
       Math.pow(c1.g - c2.g, 2) +
@@ -178,14 +189,14 @@ function floodFillFromBottom(
     );
   };
 
-  // Flood fill function
-  const fill = (startX: number, startY: number, seedColor: {r:number,g:number,b:number}) => {
-    const stack: [number, number, {r:number,g:number,b:number}][] = [[startX, startY, seedColor]];
+  // Flood fill function with vertical constraint
+  const fill = (startX: number, startY: number, seedColor: { r: number, g: number, b: number }) => {
+    const stack: [number, number, { r: number, g: number, b: number }][] = [[startX, startY, seedColor]];
 
     while (stack.length > 0) {
       const [x, y, parentColor] = stack.pop()!;
 
-      if (x < 0 || x >= width || y < 0 || y >= height) continue;
+      if (x < 0 || x >= width || y < minY || y >= height) continue; // Enforce vertical constraint
       if (visited[y][x]) continue;
 
       visited[y][x] = true;
