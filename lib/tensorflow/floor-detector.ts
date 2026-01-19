@@ -261,8 +261,8 @@ function detectBottomRegion(
   // More conservative threshold
   const threshold = 60;
 
-  // Mark pixels similar to floor color, only in bottom 60% of image
-  const minY = Math.floor(height * 0.4);
+  // Mark pixels similar to floor color - allow detection in bottom 85% of image
+  const minY = Math.floor(height * 0.15);
 
   for (let y = minY; y < height; y++) {
     for (let x = 0; x < width; x++) {
@@ -318,8 +318,8 @@ function floodFillFromBottom(
   // More conservative color threshold for precise detection
   const colorThreshold = 50;
 
-  // Only fill in bottom 60% of image (floor should be here)
-  const minY = Math.floor(height * 0.4);
+  // Allow filling in bottom 85% of image to capture more floor area
+  const minY = Math.floor(height * 0.15);
 
   // Get pixel color helper
   const getColor = (x: number, y: number) => {
