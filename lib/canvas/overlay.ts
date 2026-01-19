@@ -58,20 +58,20 @@ export async function applyTextureOverlay(
       settings.scale || 1
     );
 
-    // Apply lighting adjustments to match room
+    // Apply subtle lighting adjustments to match room (reduced intensity for clearer texture)
     textureData = applyLightingAdjustment(
       textureData,
       originalData,
       segmentationData.mask,
-      0.4 // Lighting intensity
+      0.15 // Lower intensity - texture color is more visible
     );
 
-    // Blend edges seamlessly
+    // Blend edges seamlessly (smaller blend width for sharper edges)
     textureData = blendEdges(
       textureData,
       originalData,
       segmentationData.mask,
-      4 // Blend width in pixels
+      2 // Reduced blend width
     );
   } else {
     // Fallback to simple tiled texture

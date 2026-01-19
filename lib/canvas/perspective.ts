@@ -127,12 +127,15 @@ export function applyPerspectiveTexture(
       const p01 = getPixel(x0, y1);
       const p11 = getPixel(x1, y1);
 
-      for (let c = 0; c < 4; c++) {
+      // Interpolate RGB channels
+      for (let c = 0; c < 3; c++) {
         output.data[idx + c] = Math.round(
           p00[c] * (1 - fx) * (1 - fy) + p10[c] * fx * (1 - fy) +
           p01[c] * (1 - fx) * fy + p11[c] * fx * fy
         );
       }
+      // Force alpha to 255 for floor pixels (fully opaque)
+      output.data[idx + 3] = 255;
     }
   }
 
