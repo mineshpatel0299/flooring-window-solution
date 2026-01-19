@@ -62,12 +62,13 @@ export function detectFloorPlane(mask: number[][]): FloorPlane | null {
 
 /**
  * Apply perspective-aware texture mapping
+ * Stretches the texture to fit the entire floor area with perspective correction
  */
 export function applyPerspectiveTexture(
   textureData: ImageData,
   mask: number[][],
   floorPlane: FloorPlane,
-  tileScale: number = 1
+  _tileScale: number = 1 // Kept for compatibility but not used
 ): ImageData {
   const height = mask.length;
   const width = mask[0].length;
@@ -76,6 +77,7 @@ export function applyPerspectiveTexture(
   const texWidth = textureData.width;
   const texHeight = textureData.height;
 
+  // Calculate floor bounds
   const topY = floorPlane.topLeft.y;
   const bottomY = floorPlane.bottomLeft.y;
   const floorHeight = Math.max(1, bottomY - topY);
@@ -89,37 +91,40 @@ export function applyPerspectiveTexture(
         continue;
       }
 
-      // Calculate perspective scale
+      // Calculate normalized position within floor bounds (0-1)
       const normalizedY = Math.max(0, Math.min(1, (y - topY) / floorHeight));
-      const perspectiveScale = 0.4 + 0.6 * normalizedY;
 
-      // Calculate row width at this Y
+      // Calculate row width at this Y position (perspective)
       const leftX = lerp(floorPlane.topLeft.x, floorPlane.bottomLeft.x, normalizedY);
       const rightX = lerp(floorPlane.topRight.x, floorPlane.bottomRight.x, normalizedY);
       const rowWidth = Math.max(1, rightX - leftX);
-      const normalizedX = (x - leftX) / rowWidth;
+      const normalizedX = Math.max(0, Math.min(1, (x - leftX) / rowWidth));
 
-      // Calculate texture coordinates with perspective
-      const baseTileSize = 80 * tileScale;
-      const tileSize = baseTileSize * perspectiveScale;
+      // Map normalized coordinates directly to texture coordinates
+      // This stretches the texture to fit the entire floor
+      let texX = normalizedX * (texWidth - 1);
+      let texY = normalizedY * (texHeight - 1);
 
-      let texX = ((normalizedX * width / tileSize) * texWidth) % texWidth;
-      let texY = ((normalizedY * height / tileSize) * texHeight) % texHeight;
+      // Clamp to valid range
+      texX = Math.max(0, Math.min(texWidth - 1, texX));
+      texY = Math.max(0, Math.min(texHeight - 1, texY));
 
-      texX = ((texX % texWidth) + texWidth) % texWidth;
-      texY = ((texY % texHeight) + texHeight) % texHeight;
-
-      // Bilinear interpolation
+      // Bilinear interpolation for smooth texture sampling
       const x0 = Math.floor(texX);
       const y0 = Math.floor(texY);
-      const x1 = (x0 + 1) % texWidth;
-      const y1 = (y0 + 1) % texHeight;
+      const x1 = Math.min(x0 + 1, texWidth - 1);
+      const y1 = Math.min(y0 + 1, texHeight - 1);
       const fx = texX - x0;
       const fy = texY - y0;
 
       const getPixel = (px: number, py: number) => {
         const i = (py * texWidth + px) * 4;
-        return [textureData.data[i], textureData.data[i + 1], textureData.data[i + 2], textureData.data[i + 3]];
+        return [
+          textureData.data[i],
+          textureData.data[i + 1],
+          textureData.data[i + 2],
+          textureData.data[i + 3]
+        ];
       };
 
       const p00 = getPixel(x0, y0);

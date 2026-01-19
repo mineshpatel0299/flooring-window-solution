@@ -6,10 +6,8 @@ import {
   featherMask,
 } from './blend-modes';
 import {
-  applyPerspectiveTransform,
   detectFloorPlane,
   applyPerspectiveTexture,
-  applyLightingAdjustment,
   blendEdges,
 } from './perspective';
 import type { SegmentationData, CanvasSettings, Texture } from '@/types';
@@ -58,20 +56,13 @@ export async function applyTextureOverlay(
       settings.scale || 1
     );
 
-    // Apply subtle lighting adjustments to match room (reduced intensity for clearer texture)
-    textureData = applyLightingAdjustment(
-      textureData,
-      originalData,
-      segmentationData.mask,
-      0.15 // Lower intensity - texture color is more visible
-    );
-
-    // Blend edges seamlessly (smaller blend width for sharper edges)
+    // Skip lighting adjustment - use texture as-is for accurate color
+    // Blend edges seamlessly (minimal blend width)
     textureData = blendEdges(
       textureData,
       originalData,
       segmentationData.mask,
-      2 // Reduced blend width
+      1 // Minimal blend width for sharp edges
     );
   } else {
     // Fallback to simple tiled texture

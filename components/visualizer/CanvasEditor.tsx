@@ -184,18 +184,6 @@ export function CanvasEditor({
     await downloadCanvas(canvasRef.current, filename, mimeType);
   };
 
-  // Update settings
-  const updateSettings = useCallback((updates: Partial<CanvasSettings>) => {
-    const newSettings = { ...settings, ...updates };
-    setSettings(newSettings);
-    if (onSettingsChange) {
-      // Use setTimeout to avoid updating parent during render
-      setTimeout(() => {
-        onSettingsChange(newSettings);
-      }, 0);
-    }
-  }, [settings, onSettingsChange]);
-
   // Texture carousel scroll functions
   const scrollTextures = useCallback((direction: 'left' | 'right') => {
     if (textureScrollRef.current) {
@@ -225,60 +213,6 @@ export function CanvasEditor({
     <div className="flex flex-col h-full border border-border rounded-lg overflow-hidden bg-card">
       {/* Controls */}
       <div className="p-3 sm:p-4 bg-card border-b border-border space-y-3 sm:space-y-4">
-        {/* Opacity Control */}
-        <div className="space-y-2">
-          <label className="text-xs sm:text-sm font-medium">
-            Opacity: {Math.round(settings.opacity * 100)}%
-          </label>
-          <input
-            type="range"
-            min="0"
-            max="100"
-            value={settings.opacity * 100}
-            onChange={(e) =>
-              updateSettings({ opacity: parseInt(e.target.value) / 100 })
-            }
-            className="w-full"
-          />
-        </div>
-
-        {/* Blend Mode */}
-        <div className="space-y-2">
-          <label className="text-xs sm:text-sm font-medium">Blend Mode</label>
-          <select
-            value={settings.blendMode}
-            onChange={(e) =>
-              updateSettings({ blendMode: e.target.value as any })
-            }
-            className="w-full px-3 py-2 text-sm bg-background border border-input rounded-md"
-          >
-            <option value="replace">Replace (Full Texture)</option>
-            <option value="multiply">Multiply</option>
-            <option value="overlay">Overlay</option>
-            <option value="normal">Normal</option>
-          </select>
-        </div>
-
-        {/* Texture Scale Control */}
-        <div className="space-y-2">
-          <label className="text-xs sm:text-sm font-medium">
-            Tile Scale: {((settings.scale || 1) * 100).toFixed(0)}%
-          </label>
-          <input
-            type="range"
-            min="25"
-            max="200"
-            value={(settings.scale || 1) * 100}
-            onChange={(e) =>
-              updateSettings({ scale: parseInt(e.target.value) / 100 })
-            }
-            className="w-full"
-          />
-          <p className="text-xs text-muted-foreground">
-            Adjust tile size - smaller values = larger tiles
-          </p>
-        </div>
-
         {/* View Options */}
         <div className="flex flex-wrap gap-2">
           <button
