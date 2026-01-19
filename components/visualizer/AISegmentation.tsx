@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { Loader2 } from 'lucide-react';
 import { detectFloor, detectFloorBoundaries } from '@/lib/tensorflow/floor-detector';
 import { detectWindow, detectWindowBoundaries } from '@/lib/tensorflow/window-detector';
 import type { SegmentationData, VisualizationType } from '@/types';
@@ -123,14 +124,22 @@ export function AISegmentation({
   return (
     <div className="w-full">
       {isProcessing && (
-        <div className="space-y-2">
-          <div className="flex items-center justify-between text-sm">
-            <span className="text-muted-foreground">{status}</span>
-            <span className="font-medium">{progress}%</span>
+        <div className="flex flex-col items-center justify-center py-8 space-y-4">
+          <div className="relative">
+            <Loader2 className="w-12 h-12 animate-spin text-primary" />
+            <div className="absolute inset-0 flex items-center justify-center">
+              <span className="text-xs font-bold text-primary">{progress}%</span>
+            </div>
           </div>
-          <div className="h-2 bg-secondary rounded-full overflow-hidden">
+          <div className="text-center space-y-1">
+            <p className="text-sm font-medium">{status}</p>
+            <p className="text-xs text-muted-foreground">
+              {type === 'floor' ? 'Detecting floor area...' : 'Detecting window area...'}
+            </p>
+          </div>
+          <div className="w-full max-w-xs h-1.5 bg-secondary rounded-full overflow-hidden">
             <div
-              className="h-full bg-primary transition-all duration-300"
+              className="h-full bg-primary transition-all duration-500 ease-out"
               style={{ width: `${progress}%` }}
             />
           </div>

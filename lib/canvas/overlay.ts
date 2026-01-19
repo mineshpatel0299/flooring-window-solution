@@ -5,11 +5,18 @@ import {
   preserveLighting,
   featherMask,
 } from './blend-modes';
-import { applyPerspectiveTransform } from './perspective';
+import {
+  applyPerspectiveTransform,
+  detectFloorPlane,
+  applyPerspectiveTexture,
+  applyLightingAdjustment,
+  blendEdges,
+} from './perspective';
 import type { SegmentationData, CanvasSettings, Texture } from '@/types';
 
 /**
  * Apply texture overlay to an image with segmentation mask
+ * With perspective correction and realistic lighting
  */
 export async function applyTextureOverlay(
   originalImage: HTMLImageElement,
@@ -29,32 +36,61 @@ export async function applyTextureOverlay(
   // Get original image data
   const originalData = ctx.getImageData(0, 0, canvas.width, canvas.height);
 
-  // Create tiled texture to match image dimensions
-  const tiledTexture = createTiledTexture(
-    textureImage,
-    canvas.width,
-    canvas.height
-  );
+  // Detect floor plane for perspective correction
+  const floorPlane = detectFloorPlane(segmentationData.mask);
 
-  // Apply perspective if specified
-  let transformedTexture = tiledTexture;
-  if (settings.perspective && segmentationData.perspective) {
-    // For now, use the tiled texture as-is
-    // Full perspective transform would be implemented here
-    transformedTexture = tiledTexture;
+  let textureData: ImageData;
+
+  if (floorPlane && settings.blendMode === 'replace') {
+    // Apply perspective-aware texture mapping for floor
+    const textureCanvas = document.createElement('canvas');
+    const textureCtx = textureCanvas.getContext('2d')!;
+    textureCanvas.width = textureImage.width;
+    textureCanvas.height = textureImage.height;
+    textureCtx.drawImage(textureImage, 0, 0);
+    const rawTextureData = textureCtx.getImageData(0, 0, textureImage.width, textureImage.height);
+
+    // Apply perspective transformation to texture
+    textureData = applyPerspectiveTexture(
+      rawTextureData,
+      segmentationData.mask,
+      floorPlane,
+      settings.scale || 1
+    );
+
+    // Apply lighting adjustments to match room
+    textureData = applyLightingAdjustment(
+      textureData,
+      originalData,
+      segmentationData.mask,
+      0.4 // Lighting intensity
+    );
+
+    // Blend edges seamlessly
+    textureData = blendEdges(
+      textureData,
+      originalData,
+      segmentationData.mask,
+      4 // Blend width in pixels
+    );
+  } else {
+    // Fallback to simple tiled texture
+    const tiledTexture = createTiledTexture(
+      textureImage,
+      canvas.width,
+      canvas.height
+    );
+
+    textureData = imageToImageData(tiledTexture);
+
+    // Preserve lighting for non-replace modes
+    if (settings.blendMode !== 'replace') {
+      textureData = preserveLighting(textureData, originalData, 0.5);
+    }
   }
 
-  // Get texture image data
-  let textureData = imageToImageData(transformedTexture);
-
-  // For "replace" mode, use pure texture without lighting preservation
-  // For other modes, preserve some lighting from the original image for realism
-  if (settings.blendMode !== 'replace') {
-    textureData = preserveLighting(textureData, originalData, 0.5);
-  }
-
-  // Feather the mask edges for smoother blending (skip for replace mode)
-  const finalMask = settings.blendMode === 'replace'
+  // Feather the mask edges for smoother blending (skip for replace mode with perspective)
+  const finalMask = (settings.blendMode === 'replace' && floorPlane)
     ? segmentationData.mask
     : featherMask(segmentationData.mask, 2);
 

@@ -47,6 +47,7 @@ export const DEFAULT_CANVAS_SETTINGS = {
   blendMode: BLEND_MODES.REPLACE,
   zoom: 1,
   pan: { x: 0, y: 0 },
+  scale: 1, // Texture tile scale
 };
 
 // API endpoints

@@ -2,7 +2,7 @@ import { scaleMask } from './segmentation';
 import type { SegmentationData } from '@/types';
 
 /**
- * Detect floor area using multiple strategies with improved precision
+ * Detect floor area using SAM 2 API with fallback to local detection
  */
 export async function detectFloor(
   image: HTMLImageElement
@@ -10,83 +10,217 @@ export async function detectFloor(
   try {
     console.log('Detecting floor area...');
 
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d')!;
-
-    const maxDim = 500;
-    const scale = Math.min(maxDim / image.width, maxDim / image.height, 1);
-    const width = Math.floor(image.width * scale);
-    const height = Math.floor(image.height * scale);
-
-    canvas.width = width;
-    canvas.height = height;
-    ctx.drawImage(image, 0, 0, width, height);
-
-    const imageData = ctx.getImageData(0, 0, width, height);
-    const data = imageData.data;
-
-    // Strategy 1: Flood fill from bottom with conservative threshold
-    let mask = floodFillFromBottom(data, width, height);
-    let coverage = calculateCoverage(mask);
-    console.log(`Flood fill coverage: ${(coverage * 100).toFixed(1)}%`);
-
-    // Strategy 2: If flood fill didn't find enough, use bottom region detection
-    if (coverage < 0.08) {
-      console.log('Flood fill insufficient, using bottom region strategy...');
-      mask = detectBottomRegion(data, width, height);
-      coverage = calculateCoverage(mask);
-      console.log(`Bottom region coverage: ${(coverage * 100).toFixed(1)}%`);
+    // Try SAM 2 API first
+    try {
+      const sam2Result = await detectFloorWithSAM2(image);
+      if (sam2Result) {
+        console.log('SAM 2 detection successful');
+        return sam2Result;
+      }
+    } catch (apiError) {
+      console.log('SAM 2 API not available, using local detection:', apiError);
     }
 
-    // Strategy 3: If still not enough, use horizontal band from bottom (last resort)
-    if (coverage < 0.05) {
-      console.log('Using fallback horizontal band strategy...');
-      mask = createBottomBandMask(width, height, 0.25); // Bottom 25% only
-      coverage = calculateCoverage(mask);
-    }
-
-    // Edge detection to exclude furniture legs and sharp edges
-    console.log('Detecting edges to exclude furniture...');
-    const edges = detectEdges(data, width, height);
-    mask = removeEdgePixels(mask, edges, 0.25); // Balanced threshold
-
-    // Gentle erosion to remove thin furniture legs without losing floor
-    mask = erode(mask, 2);
-    mask = dilate(mask, 2); // Restore floor area
-
-    // Remove small components (likely furniture legs or small objects)
-    const minComponentSize = Math.floor(width * height * 0.015); // 1.5% - balanced filter
-    mask = removeSmallComponents(mask, width, height, minComponentSize);
-
-    // Fill gaps with reduced dilation
-    mask = dilate(mask, 3);
-    mask = erode(mask, 2);
-
-    // Keep largest component
-    mask = keepLargestComponent(mask, width, height);
-
-    // Fill holes
-    mask = fillHoles(mask, width, height);
-
-    // Smooth edges
-    mask = dilate(mask, 2);
-    mask = erode(mask, 1);
-
-    coverage = calculateCoverage(mask);
-    console.log(`Floor detection complete. Final coverage: ${(coverage * 100).toFixed(1)}%`);
-
-    const scaledMask = scaleMask(mask, image.width, image.height);
-
-    return {
-      mask: scaledMask,
-      width: image.width,
-      height: image.height,
-      confidence: 0.85,
-    };
+    // Fallback to local detection
+    return detectFloorLocal(image);
   } catch (error) {
     console.error('Error detecting floor:', error);
     throw error;
   }
+}
+
+/**
+ * Detect floor using SAM 2 API
+ */
+async function detectFloorWithSAM2(
+  image: HTMLImageElement
+): Promise<SegmentationData | null> {
+  // Convert image to base64
+  const canvas = document.createElement('canvas');
+  canvas.width = image.width;
+  canvas.height = image.height;
+  const ctx = canvas.getContext('2d')!;
+  ctx.drawImage(image, 0, 0);
+  const base64Image = canvas.toDataURL('image/jpeg', 0.9);
+
+  // Multiple click points on the floor area (normalized 0-1)
+  const floorPoints = [
+    [0.5, 0.85],   // Center bottom
+    [0.3, 0.85],   // Left bottom
+    [0.7, 0.85],   // Right bottom
+    [0.5, 0.75],   // Center lower
+    [0.2, 0.9],    // Far left bottom
+    [0.8, 0.9],    // Far right bottom
+  ];
+
+  const response = await fetch('/api/segment-floor', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      image: base64Image,
+      points: floorPoints,
+    }),
+  });
+
+  const result = await response.json();
+
+  // If API says to use local detection, return null to trigger fallback
+  if (result.useLocalDetection || !result.success || !result.mask) {
+    console.log('SAM 2 API unavailable, falling back to local detection');
+    return null;
+  }
+
+  // Process SAM 2 mask output
+  const mask = await processSAM2Mask(result.mask, image.width, image.height);
+
+  return {
+    mask,
+    width: image.width,
+    height: image.height,
+    confidence: 0.95,
+  };
+}
+
+/**
+ * Process SAM 2 mask output (can be URL or base64)
+ */
+async function processSAM2Mask(
+  maskData: string | { combined_mask?: string; masks?: string[] },
+  targetWidth: number,
+  targetHeight: number
+): Promise<number[][]> {
+  let maskUrl: string;
+
+  if (typeof maskData === 'string') {
+    maskUrl = maskData;
+  } else if (maskData.combined_mask) {
+    maskUrl = maskData.combined_mask;
+  } else if (maskData.masks && maskData.masks.length > 0) {
+    maskUrl = maskData.masks[0];
+  } else {
+    throw new Error('Invalid mask data from SAM 2');
+  }
+
+  // Load the mask image
+  const maskImage = await loadImage(maskUrl);
+
+  // Convert to mask array
+  const canvas = document.createElement('canvas');
+  canvas.width = targetWidth;
+  canvas.height = targetHeight;
+  const ctx = canvas.getContext('2d')!;
+  ctx.drawImage(maskImage, 0, 0, targetWidth, targetHeight);
+
+  const imageData = ctx.getImageData(0, 0, targetWidth, targetHeight);
+  const data = imageData.data;
+
+  const mask: number[][] = Array(targetHeight).fill(null).map(() => Array(targetWidth).fill(0));
+
+  for (let y = 0; y < targetHeight; y++) {
+    for (let x = 0; x < targetWidth; x++) {
+      const i = (y * targetWidth + x) * 4;
+      // SAM 2 masks are typically white (255) for segmented area
+      mask[y][x] = data[i] > 128 ? 1 : 0;
+    }
+  }
+
+  return mask;
+}
+
+/**
+ * Load image from URL
+ */
+function loadImage(url: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = url;
+  });
+}
+
+/**
+ * Local floor detection fallback
+ */
+async function detectFloorLocal(
+  image: HTMLImageElement
+): Promise<SegmentationData> {
+  console.log('Using local floor detection...');
+
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d')!;
+
+  const maxDim = 500;
+  const scale = Math.min(maxDim / image.width, maxDim / image.height, 1);
+  const width = Math.floor(image.width * scale);
+  const height = Math.floor(image.height * scale);
+
+  canvas.width = width;
+  canvas.height = height;
+  ctx.drawImage(image, 0, 0, width, height);
+
+  const imageData = ctx.getImageData(0, 0, width, height);
+  const data = imageData.data;
+
+  // Strategy 1: Flood fill from bottom with conservative threshold
+  let mask = floodFillFromBottom(data, width, height);
+  let coverage = calculateCoverage(mask);
+  console.log(`Flood fill coverage: ${(coverage * 100).toFixed(1)}%`);
+
+  // Strategy 2: If flood fill didn't find enough, use bottom region detection
+  if (coverage < 0.08) {
+    console.log('Flood fill insufficient, using bottom region strategy...');
+    mask = detectBottomRegion(data, width, height);
+    coverage = calculateCoverage(mask);
+    console.log(`Bottom region coverage: ${(coverage * 100).toFixed(1)}%`);
+  }
+
+  // Strategy 3: If still not enough, use horizontal band from bottom (last resort)
+  if (coverage < 0.05) {
+    console.log('Using fallback horizontal band strategy...');
+    mask = createBottomBandMask(width, height, 0.25);
+    coverage = calculateCoverage(mask);
+  }
+
+  // Edge detection to exclude furniture legs and sharp edges
+  console.log('Detecting edges to exclude furniture...');
+  const edges = detectEdges(data, width, height);
+  mask = removeEdgePixels(mask, edges, 0.25);
+
+  // Gentle erosion to remove thin furniture legs without losing floor
+  mask = erode(mask, 2);
+  mask = dilate(mask, 2);
+
+  // Remove small components (likely furniture legs or small objects)
+  const minComponentSize = Math.floor(width * height * 0.015);
+  mask = removeSmallComponents(mask, width, height, minComponentSize);
+
+  // Fill gaps with reduced dilation
+  mask = dilate(mask, 3);
+  mask = erode(mask, 2);
+
+  // Keep largest component
+  mask = keepLargestComponent(mask, width, height);
+
+  // Fill holes
+  mask = fillHoles(mask, width, height);
+
+  // Smooth edges
+  mask = dilate(mask, 2);
+  mask = erode(mask, 1);
+
+  coverage = calculateCoverage(mask);
+  console.log(`Floor detection complete. Final coverage: ${(coverage * 100).toFixed(1)}%`);
+
+  const scaledMask = scaleMask(mask, image.width, image.height);
+
+  return {
+    mask: scaledMask,
+    width: image.width,
+    height: image.height,
+    confidence: 0.85,
+  };
 }
 
 /**

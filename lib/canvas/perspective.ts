@@ -1,5 +1,292 @@
 import type { PerspectiveTransform, Point } from '@/types';
 
+export interface FloorPlane {
+  topLeft: Point;
+  topRight: Point;
+  bottomLeft: Point;
+  bottomRight: Point;
+  vanishingPoint?: Point;
+  perspectiveRatio: number;
+}
+
+/**
+ * Detect floor plane boundaries from segmentation mask
+ */
+export function detectFloorPlane(mask: number[][]): FloorPlane | null {
+  const height = mask.length;
+  const width = mask[0].length;
+
+  // Find floor boundaries
+  let topY = -1, bottomY = -1;
+
+  for (let y = 0; y < height; y++) {
+    if (mask[y].some(v => v > 0.5)) {
+      if (topY === -1) topY = y;
+      bottomY = y;
+    }
+  }
+
+  if (topY === -1 || bottomY === -1) return null;
+
+  // Find edges at top and bottom
+  let topLeftX = -1, topRightX = -1;
+  for (let x = 0; x < width; x++) {
+    if (mask[topY][x] > 0.5) {
+      if (topLeftX === -1) topLeftX = x;
+      topRightX = x;
+    }
+  }
+
+  let bottomLeftX = -1, bottomRightX = -1;
+  for (let x = 0; x < width; x++) {
+    if (mask[bottomY][x] > 0.5) {
+      if (bottomLeftX === -1) bottomLeftX = x;
+      bottomRightX = x;
+    }
+  }
+
+  if (topLeftX === -1 || bottomLeftX === -1) return null;
+
+  const topWidth = topRightX - topLeftX;
+  const bottomWidth = bottomRightX - bottomLeftX;
+  const perspectiveRatio = bottomWidth > 0 ? Math.max(0, Math.min(1, 1 - (topWidth / bottomWidth))) : 0;
+
+  return {
+    topLeft: { x: topLeftX, y: topY },
+    topRight: { x: topRightX, y: topY },
+    bottomLeft: { x: bottomLeftX, y: bottomY },
+    bottomRight: { x: bottomRightX, y: bottomY },
+    perspectiveRatio,
+  };
+}
+
+/**
+ * Apply perspective-aware texture mapping
+ */
+export function applyPerspectiveTexture(
+  textureData: ImageData,
+  mask: number[][],
+  floorPlane: FloorPlane,
+  tileScale: number = 1
+): ImageData {
+  const height = mask.length;
+  const width = mask[0].length;
+  const output = new ImageData(width, height);
+
+  const texWidth = textureData.width;
+  const texHeight = textureData.height;
+
+  const topY = floorPlane.topLeft.y;
+  const bottomY = floorPlane.bottomLeft.y;
+  const floorHeight = Math.max(1, bottomY - topY);
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const idx = (y * width + x) * 4;
+
+      if (mask[y][x] < 0.5) {
+        output.data[idx + 3] = 0;
+        continue;
+      }
+
+      // Calculate perspective scale
+      const normalizedY = Math.max(0, Math.min(1, (y - topY) / floorHeight));
+      const perspectiveScale = 0.4 + 0.6 * normalizedY;
+
+      // Calculate row width at this Y
+      const leftX = lerp(floorPlane.topLeft.x, floorPlane.bottomLeft.x, normalizedY);
+      const rightX = lerp(floorPlane.topRight.x, floorPlane.bottomRight.x, normalizedY);
+      const rowWidth = Math.max(1, rightX - leftX);
+      const normalizedX = (x - leftX) / rowWidth;
+
+      // Calculate texture coordinates with perspective
+      const baseTileSize = 80 * tileScale;
+      const tileSize = baseTileSize * perspectiveScale;
+
+      let texX = ((normalizedX * width / tileSize) * texWidth) % texWidth;
+      let texY = ((normalizedY * height / tileSize) * texHeight) % texHeight;
+
+      texX = ((texX % texWidth) + texWidth) % texWidth;
+      texY = ((texY % texHeight) + texHeight) % texHeight;
+
+      // Bilinear interpolation
+      const x0 = Math.floor(texX);
+      const y0 = Math.floor(texY);
+      const x1 = (x0 + 1) % texWidth;
+      const y1 = (y0 + 1) % texHeight;
+      const fx = texX - x0;
+      const fy = texY - y0;
+
+      const getPixel = (px: number, py: number) => {
+        const i = (py * texWidth + px) * 4;
+        return [textureData.data[i], textureData.data[i + 1], textureData.data[i + 2], textureData.data[i + 3]];
+      };
+
+      const p00 = getPixel(x0, y0);
+      const p10 = getPixel(x1, y0);
+      const p01 = getPixel(x0, y1);
+      const p11 = getPixel(x1, y1);
+
+      for (let c = 0; c < 4; c++) {
+        output.data[idx + c] = Math.round(
+          p00[c] * (1 - fx) * (1 - fy) + p10[c] * fx * (1 - fy) +
+          p01[c] * (1 - fx) * fy + p11[c] * fx * fy
+        );
+      }
+    }
+  }
+
+  return output;
+}
+
+function lerp(a: number, b: number, t: number): number {
+  return a + (b - a) * t;
+}
+
+/**
+ * Apply lighting adjustments to match room lighting
+ */
+export function applyLightingAdjustment(
+  textureData: ImageData,
+  originalData: ImageData,
+  mask: number[][],
+  intensity: number = 0.4
+): ImageData {
+  const width = originalData.width;
+  const height = originalData.height;
+  const output = new ImageData(width, height);
+
+  // Calculate average brightness of original floor
+  let totalBrightness = 0;
+  let count = 0;
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      if (mask[y]?.[x] > 0.5) {
+        const idx = (y * width + x) * 4;
+        totalBrightness += (originalData.data[idx] + originalData.data[idx + 1] + originalData.data[idx + 2]) / 3;
+        count++;
+      }
+    }
+  }
+
+  const avgBrightness = count > 0 ? totalBrightness / count : 128;
+  const globalFactor = avgBrightness / 128;
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const idx = (y * width + x) * 4;
+
+      if (!mask[y] || mask[y][x] < 0.5) {
+        output.data[idx] = originalData.data[idx];
+        output.data[idx + 1] = originalData.data[idx + 1];
+        output.data[idx + 2] = originalData.data[idx + 2];
+        output.data[idx + 3] = originalData.data[idx + 3];
+        continue;
+      }
+
+      // Local brightness adjustment
+      const localBrightness = (originalData.data[idx] + originalData.data[idx + 1] + originalData.data[idx + 2]) / 3;
+      const localFactor = avgBrightness > 0 ? localBrightness / avgBrightness : 1;
+      const adjustment = 1 + (localFactor - 1) * intensity;
+
+      output.data[idx] = Math.min(255, Math.max(0, Math.round(textureData.data[idx] * globalFactor * adjustment)));
+      output.data[idx + 1] = Math.min(255, Math.max(0, Math.round(textureData.data[idx + 1] * globalFactor * adjustment)));
+      output.data[idx + 2] = Math.min(255, Math.max(0, Math.round(textureData.data[idx + 2] * globalFactor * adjustment)));
+      output.data[idx + 3] = textureData.data[idx + 3];
+    }
+  }
+
+  return output;
+}
+
+/**
+ * Blend edges seamlessly
+ */
+export function blendEdges(
+  textureData: ImageData,
+  originalData: ImageData,
+  mask: number[][],
+  blendWidth: number = 4
+): ImageData {
+  const width = originalData.width;
+  const height = originalData.height;
+  const output = new ImageData(width, height);
+
+  // Create edge distance map
+  const distanceMap = createDistanceMap(mask, width, height, blendWidth);
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const idx = (y * width + x) * 4;
+      const maskValue = mask[y]?.[x] ?? 0;
+      const distance = distanceMap[y]?.[x] ?? blendWidth;
+
+      if (maskValue < 0.5) {
+        output.data[idx] = originalData.data[idx];
+        output.data[idx + 1] = originalData.data[idx + 1];
+        output.data[idx + 2] = originalData.data[idx + 2];
+        output.data[idx + 3] = originalData.data[idx + 3];
+      } else if (distance < blendWidth) {
+        const t = distance / blendWidth;
+        const smooth = t * t * (3 - 2 * t); // Smoothstep
+
+        output.data[idx] = Math.round(originalData.data[idx] * (1 - smooth) + textureData.data[idx] * smooth);
+        output.data[idx + 1] = Math.round(originalData.data[idx + 1] * (1 - smooth) + textureData.data[idx + 1] * smooth);
+        output.data[idx + 2] = Math.round(originalData.data[idx + 2] * (1 - smooth) + textureData.data[idx + 2] * smooth);
+        output.data[idx + 3] = originalData.data[idx + 3];
+      } else {
+        output.data[idx] = textureData.data[idx];
+        output.data[idx + 1] = textureData.data[idx + 1];
+        output.data[idx + 2] = textureData.data[idx + 2];
+        output.data[idx + 3] = originalData.data[idx + 3];
+      }
+    }
+  }
+
+  return output;
+}
+
+function createDistanceMap(mask: number[][], width: number, height: number, maxDist: number): number[][] {
+  const distMap: number[][] = Array(height).fill(null).map(() => Array(width).fill(maxDist));
+
+  // Find edge pixels
+  const queue: [number, number][] = [];
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      if ((mask[y]?.[x] ?? 0) > 0.5) {
+        const neighbors = [[y-1, x], [y+1, x], [y, x-1], [y, x+1]];
+        for (const [ny, nx] of neighbors) {
+          if (ny < 0 || ny >= height || nx < 0 || nx >= width || (mask[ny]?.[nx] ?? 0) < 0.5) {
+            distMap[y][x] = 0;
+            queue.push([y, x]);
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  // BFS for distance
+  while (queue.length > 0) {
+    const [y, x] = queue.shift()!;
+    const dist = distMap[y][x];
+    if (dist >= maxDist) continue;
+
+    for (const [dy, dx] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) {
+      const ny = y + dy, nx = x + dx;
+      if (ny >= 0 && ny < height && nx >= 0 && nx < width &&
+          (mask[ny]?.[nx] ?? 0) > 0.5 && distMap[ny][nx] > dist + 1) {
+        distMap[ny][nx] = dist + 1;
+        queue.push([ny, nx]);
+      }
+    }
+  }
+
+  return distMap;
+}
+
 /**
  * Calculate perspective transformation matrix
  * Maps source quad to destination quad

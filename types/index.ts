@@ -91,6 +91,7 @@ export interface CanvasSettings {
   pan: Point;
   perspective?: PerspectiveTransform;
   tileSize?: number;
+  scale?: number; // Texture tile scale (1 = default)
   featherEdges?: boolean;
   preserveLighting?: boolean;
 }

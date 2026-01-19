@@ -1,8 +1,8 @@
 'use client';
 
 import { useRef, useEffect, useState, useCallback } from 'react';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
-import { applyTextureOverlay, drawMaskOverlay, drawPerspectiveHandles } from '@/lib/canvas/overlay';
+import { ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
+import { applyTextureOverlay, drawMaskOverlay } from '@/lib/canvas/overlay';
 import { downloadCanvas } from '@/lib/canvas/export';
 import { DEFAULT_CANVAS_SETTINGS } from '@/lib/constants';
 import type { SegmentationData, CanvasSettings, Texture } from '@/types';
@@ -118,11 +118,6 @@ export function CanvasEditor({
         // Optionally show mask overlay
         if (showMask) {
           drawMaskOverlay(ctx, segmentationMask.mask);
-        }
-
-        // Draw perspective handles if available
-        if (segmentationMask.perspective) {
-          drawPerspectiveHandles(ctx, segmentationMask.perspective);
         }
       } else {
         // Just show original image
@@ -264,6 +259,26 @@ export function CanvasEditor({
           </select>
         </div>
 
+        {/* Texture Scale Control */}
+        <div className="space-y-2">
+          <label className="text-xs sm:text-sm font-medium">
+            Tile Scale: {((settings.scale || 1) * 100).toFixed(0)}%
+          </label>
+          <input
+            type="range"
+            min="25"
+            max="200"
+            value={(settings.scale || 1) * 100}
+            onChange={(e) =>
+              updateSettings({ scale: parseInt(e.target.value) / 100 })
+            }
+            className="w-full"
+          />
+          <p className="text-xs text-muted-foreground">
+            Adjust tile size - smaller values = larger tiles
+          </p>
+        </div>
+
         {/* View Options */}
         <div className="flex flex-wrap gap-2">
           <button
@@ -367,9 +382,6 @@ export function CanvasEditor({
           </button>
         </div>
 
-        {isRendering && (
-          <div className="text-xs sm:text-sm text-muted-foreground">Rendering...</div>
-        )}
       </div>
 
       {/* Canvas Container */}
@@ -397,6 +409,18 @@ export function CanvasEditor({
             }}
           />
         </div>
+
+        {/* Loading Overlay */}
+        {isRendering && (
+          <div className="absolute inset-0 bg-background/80 backdrop-blur-sm flex items-center justify-center z-10">
+            <div className="flex flex-col items-center gap-3">
+              <Loader2 className="w-8 h-8 animate-spin text-primary" />
+              <span className="text-sm font-medium text-muted-foreground">
+                Applying texture...
+              </span>
+            </div>
+          </div>
+        )}
 
         {/* Zoom indicator */}
         <div className="absolute bottom-2 sm:bottom-4 right-2 sm:right-4 px-2 sm:px-3 py-1 sm:py-1.5 bg-black/50 text-white text-xs sm:text-sm rounded-md">
