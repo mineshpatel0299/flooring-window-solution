@@ -249,11 +249,9 @@ async function detectFloorLocal(
 }
 
 /**
- * Detect wall regions based on vertical gradients and position
- * Walls typically:
- * - Are in the upper/middle portions of the image
- * - Have vertical color continuity (same color going up)
- * - Meet the floor at a horizontal line (floor-wall boundary)
+ * Detect wall regions based on position only (simpler, more reliable)
+ * Walls are typically in the upper portion of the image
+ * We use a conservative approach - only mark the upper 40% as definite wall
  */
 function detectWallRegions(
   data: Uint8ClampedArray,
@@ -262,137 +260,100 @@ function detectWallRegions(
 ): number[][] {
   const wallMask: number[][] = Array(height).fill(null).map(() => Array(width).fill(0));
 
-  // Detect the floor-wall boundary line (horizon line)
-  const horizonY = detectFloorWallBoundary(data, width, height);
-  console.log(`Detected floor-wall boundary at y=${horizonY} (${((horizonY / height) * 100).toFixed(1)}% from top)`);
+  // Sample floor color from the very bottom of the image
+  const floorSampleY = height - 5;
+  const floorColors: { r: number, g: number, b: number }[] = [];
 
-  // Mark everything above the boundary as potential wall
-  // But also check for color continuity with the wall region
-
-  // Sample wall colors from the upper portion (above horizon)
-  const wallSampleStartY = Math.floor(height * 0.1);
-  const wallSampleEndY = Math.min(horizonY, Math.floor(height * 0.5));
-  const wallColors: { r: number, g: number, b: number }[] = [];
-
-  for (let y = wallSampleStartY; y < wallSampleEndY; y += 3) {
-    for (const pct of [0.2, 0.4, 0.5, 0.6, 0.8]) {
-      const x = Math.floor(width * pct);
-      const i = (y * width + x) * 4;
-      wallColors.push({ r: data[i], g: data[i + 1], b: data[i + 2] });
-    }
+  for (const pct of [0.2, 0.35, 0.5, 0.65, 0.8]) {
+    const x = Math.floor(width * pct);
+    const i = (floorSampleY * width + x) * 4;
+    floorColors.push({ r: data[i], g: data[i + 1], b: data[i + 2] });
   }
 
-  if (wallColors.length === 0) {
-    return wallMask; // No wall detected
-  }
+  // Calculate median floor color
+  const sortedR = floorColors.map(c => c.r).sort((a, b) => a - b);
+  const sortedG = floorColors.map(c => c.g).sort((a, b) => a - b);
+  const sortedB = floorColors.map(c => c.b).sort((a, b) => a - b);
+  const mid = Math.floor(floorColors.length / 2);
 
-  // Calculate median wall color
-  const sortedR = wallColors.map(c => c.r).sort((a, b) => a - b);
-  const sortedG = wallColors.map(c => c.g).sort((a, b) => a - b);
-  const sortedB = wallColors.map(c => c.b).sort((a, b) => a - b);
-  const mid = Math.floor(wallColors.length / 2);
-
-  const wallColor = {
+  const floorColor = {
     r: sortedR[mid],
     g: sortedG[mid],
     b: sortedB[mid],
   };
 
-  // Mark wall regions - pixels that:
-  // 1. Are above or near the horizon line
-  // 2. Have similar color to the wall sample
-  const wallThreshold = 70;
+  // Sample wall color from upper portion
+  const wallSampleY = Math.floor(height * 0.2);
+  const wallColors: { r: number, g: number, b: number }[] = [];
 
-  for (let y = 0; y < height; y++) {
+  for (const pct of [0.2, 0.35, 0.5, 0.65, 0.8]) {
+    const x = Math.floor(width * pct);
+    const i = (wallSampleY * width + x) * 4;
+    wallColors.push({ r: data[i], g: data[i + 1], b: data[i + 2] });
+  }
+
+  const wallSortedR = wallColors.map(c => c.r).sort((a, b) => a - b);
+  const wallSortedG = wallColors.map(c => c.g).sort((a, b) => a - b);
+  const wallSortedB = wallColors.map(c => c.b).sort((a, b) => a - b);
+
+  const wallColor = {
+    r: wallSortedR[mid],
+    g: wallSortedG[mid],
+    b: wallSortedB[mid],
+  };
+
+  // Check if wall and floor colors are significantly different
+  const wallFloorDiff = Math.sqrt(
+    Math.pow(wallColor.r - floorColor.r, 2) +
+    Math.pow(wallColor.g - floorColor.g, 2) +
+    Math.pow(wallColor.b - floorColor.b, 2)
+  );
+
+  console.log(`Wall-floor color difference: ${wallFloorDiff.toFixed(1)}`);
+
+  // If colors are too similar, don't try to detect walls by color
+  // Just use position-based wall detection (upper 35% is wall)
+  if (wallFloorDiff < 40) {
+    console.log('Wall and floor colors similar - using position-only wall detection');
+    const wallEndY = Math.floor(height * 0.35);
+    for (let y = 0; y < wallEndY; y++) {
+      for (let x = 0; x < width; x++) {
+        wallMask[y][x] = 1;
+      }
+    }
+    return wallMask;
+  }
+
+  // Colors are different enough - use color-based detection
+  // Only mark pixels as wall if they're in upper 50% AND match wall color better than floor
+  const maxWallY = Math.floor(height * 0.5);
+
+  for (let y = 0; y < maxWallY; y++) {
     for (let x = 0; x < width; x++) {
       const i = (y * width + x) * 4;
       const r = data[i], g = data[i + 1], b = data[i + 2];
 
-      const dist = Math.sqrt(
+      const distToWall = Math.sqrt(
         Math.pow(r - wallColor.r, 2) +
         Math.pow(g - wallColor.g, 2) +
         Math.pow(b - wallColor.b, 2)
       );
 
-      // More aggressive wall marking above horizon, less below
-      if (y < horizonY) {
-        // Above horizon - likely wall if color matches
-        if (dist < wallThreshold) {
-          wallMask[y][x] = 1;
-        }
-      } else if (y < horizonY + Math.floor(height * 0.1)) {
-        // Transition zone - stricter matching
-        if (dist < wallThreshold * 0.6) {
-          wallMask[y][x] = 1;
-        }
+      const distToFloor = Math.sqrt(
+        Math.pow(r - floorColor.r, 2) +
+        Math.pow(g - floorColor.g, 2) +
+        Math.pow(b - floorColor.b, 2)
+      );
+
+      // Mark as wall if closer to wall color than floor color
+      // And wall color match is reasonably good
+      if (distToWall < distToFloor && distToWall < 60) {
+        wallMask[y][x] = 1;
       }
-      // Below transition zone - don't mark as wall (it's floor territory)
     }
   }
 
   return wallMask;
-}
-
-/**
- * Detect the floor-wall boundary (horizon line) in the image
- * This is where the floor meets the wall
- */
-function detectFloorWallBoundary(
-  data: Uint8ClampedArray,
-  width: number,
-  height: number
-): number {
-  // Scan from bottom up looking for significant color change
-  // The floor-wall boundary is typically where color changes significantly horizontally
-
-  const colorChangeScores: number[] = [];
-
-  for (let y = height - 1; y >= Math.floor(height * 0.2); y--) {
-    let totalChange = 0;
-    let count = 0;
-
-    // Compare this row with the row above it
-    for (let x = Math.floor(width * 0.1); x < Math.floor(width * 0.9); x++) {
-      const i1 = (y * width + x) * 4;
-      const i2 = ((y - 1) * width + x) * 4;
-
-      const dr = Math.abs(data[i1] - data[i2]);
-      const dg = Math.abs(data[i1 + 1] - data[i2 + 1]);
-      const db = Math.abs(data[i1 + 2] - data[i2 + 2]);
-
-      totalChange += (dr + dg + db) / 3;
-      count++;
-    }
-
-    colorChangeScores[y] = count > 0 ? totalChange / count : 0;
-  }
-
-  // Find the row with the highest color change (likely the boundary)
-  // But bias towards the middle of the image (floor-wall boundary is usually 40-70% from top)
-  let maxScore = 0;
-  let boundaryY = Math.floor(height * 0.5); // Default to middle
-
-  const minY = Math.floor(height * 0.25);
-  const maxY = Math.floor(height * 0.75);
-
-  for (let y = minY; y <= maxY; y++) {
-    const score = colorChangeScores[y] || 0;
-    // Apply position bias - prefer boundaries closer to 50-60% from top
-    const positionBias = 1 - Math.abs(y / height - 0.55) * 0.5;
-    const adjustedScore = score * positionBias;
-
-    if (adjustedScore > maxScore) {
-      maxScore = adjustedScore;
-      boundaryY = y;
-    }
-  }
-
-  // If no clear boundary found, default to 50% height
-  if (maxScore < 5) {
-    boundaryY = Math.floor(height * 0.5);
-  }
-
-  return boundaryY;
 }
 
 /**
@@ -425,10 +386,11 @@ function floodFillFromBottomFloorOnly(
   const mask: number[][] = Array(height).fill(null).map(() => Array(width).fill(0));
   const visited: boolean[][] = Array(height).fill(null).map(() => Array(width).fill(false));
 
-  const colorThreshold = 55;
+  // More permissive color threshold to detect complete floor
+  const colorThreshold = 65;
 
-  // Restrict to bottom 60% of image for floor detection
-  const minY = Math.floor(height * 0.4);
+  // Allow floor detection in bottom 75% of image
+  const minY = Math.floor(height * 0.25);
 
   const getColor = (x: number, y: number) => {
     const i = (y * width + x) * 4;
@@ -542,10 +504,11 @@ function detectBottomRegionFloorOnly(
     b: sortedB[mid],
   };
 
-  const threshold = 65;
+  // More permissive threshold to detect complete floor
+  const threshold = 75;
 
-  // Only allow floor detection in bottom 60% of image
-  const minY = Math.floor(height * 0.4);
+  // Allow floor detection in bottom 75% of image
+  const minY = Math.floor(height * 0.25);
 
   for (let y = minY; y < height; y++) {
     for (let x = 0; x < width; x++) {
@@ -609,10 +572,11 @@ function detectBottomRegionRelaxedFloorOnly(
     b: sortedB[mid],
   };
 
-  const threshold = 80;
+  // Very permissive threshold for relaxed detection
+  const threshold = 90;
 
-  // Only allow floor detection in bottom 55% of image
-  const minY = Math.floor(height * 0.45);
+  // Allow floor detection in bottom 80% of image
+  const minY = Math.floor(height * 0.2);
 
   for (let y = minY; y < height; y++) {
     for (let x = 0; x < width; x++) {
