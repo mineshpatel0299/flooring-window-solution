@@ -47,8 +47,8 @@ function FloorVisualizerContent() {
   // Canvas state
   const [canvasRef, setCanvasRef] = useState<HTMLCanvasElement | null>(null);
   const [canvasSettings, setCanvasSettings] = useState<CanvasSettings>({
-    opacity: 0.8,
-    blendMode: 'multiply',
+    opacity: 1.0,
+    blendMode: 'replace',
     zoom: 1,
     pan: { x: 0, y: 0 },
     tileSize: 512,
@@ -185,14 +185,13 @@ function FloorVisualizerContent() {
             ].map(({ step, icon: Icon, label }, index) => (
               <div key={step} className="flex items-center">
                 <div
-                  className={`flex items-center gap-2 px-3 py-1.5 rounded-md transition-colors ${
-                    currentStep === step
-                      ? 'bg-primary text-primary-foreground'
-                      : ['upload', 'segment', 'select-texture', 'edit'].indexOf(currentStep) >
-                        ['upload', 'segment', 'select-texture', 'edit'].indexOf(step as WorkflowStep)
+                  className={`flex items-center gap-2 px-3 py-1.5 rounded-md transition-colors ${currentStep === step
+                    ? 'bg-primary text-primary-foreground'
+                    : ['upload', 'segment', 'select-texture', 'edit'].indexOf(currentStep) >
+                      ['upload', 'segment', 'select-texture', 'edit'].indexOf(step as WorkflowStep)
                       ? 'bg-primary/20 text-primary'
                       : 'bg-muted text-muted-foreground'
-                  }`}
+                    }`}
                 >
                   <Icon className="w-4 h-4" />
                   <span className="text-sm font-medium">{label}</span>
@@ -215,14 +214,13 @@ function FloorVisualizerContent() {
             ].map(({ step, icon: Icon, label }, index) => (
               <div key={step} className="flex items-center shrink-0">
                 <div
-                  className={`flex flex-col items-center gap-1 px-2 py-1.5 rounded-md transition-colors min-w-15 ${
-                    currentStep === step
-                      ? 'bg-primary text-primary-foreground'
-                      : ['upload', 'segment', 'select-texture', 'edit'].indexOf(currentStep) >
-                        ['upload', 'segment', 'select-texture', 'edit'].indexOf(step as WorkflowStep)
+                  className={`flex flex-col items-center gap-1 px-2 py-1.5 rounded-md transition-colors min-w-15 ${currentStep === step
+                    ? 'bg-primary text-primary-foreground'
+                    : ['upload', 'segment', 'select-texture', 'edit'].indexOf(currentStep) >
+                      ['upload', 'segment', 'select-texture', 'edit'].indexOf(step as WorkflowStep)
                       ? 'bg-primary/20 text-primary'
                       : 'bg-muted text-muted-foreground'
-                  }`}
+                    }`}
                 >
                   <Icon className="w-4 h-4" />
                   <span className="text-xs font-medium">{label}</span>
@@ -332,8 +330,8 @@ function FloorVisualizerContent() {
                       originalImageUrl={originalImageUrl}
                       segmentationData={segmentationData}
                       texture={selectedTexture}
-                      opacity={0.8}
-                      blendMode="multiply"
+                      opacity={1.0}
+                      blendMode="replace"
                     />
                   </div>
                 </div>
@@ -391,7 +389,7 @@ function FloorVisualizerContent() {
                   <ProjectSaver
                     type="floor"
                     originalImageUrl={originalImageUrl}
-                    processedImageUrl={processedImageUrl}
+                    processedImageUrl={processedImageUrl || undefined}
                     segmentationData={segmentationData}
                     textureId={selectedTexture.id}
                     canvasSettings={canvasSettings}

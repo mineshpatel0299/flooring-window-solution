@@ -45,6 +45,7 @@ export function CanvasEditor({
 
   const [settings, setSettings] = useState<CanvasSettings>(() => ({
     ...DEFAULT_CANVAS_SETTINGS,
+    blendMode: 'replace', // Default to replace mode for complete floor coverage
     ...propSettings,
   }));
 
@@ -274,11 +275,10 @@ export function CanvasEditor({
         {/* Toggle Mask Button - Floating */}
         <button
           onClick={() => setShowMask(!showMask)}
-          className={`absolute top-4 right-4 flex items-center gap-2 px-3 py-2 rounded-full shadow-lg backdrop-blur-md transition-all ${
-            showMask
+          className={`absolute top-4 right-4 flex items-center gap-2 px-3 py-2 rounded-full shadow-lg backdrop-blur-md transition-all ${showMask
               ? 'bg-primary text-primary-foreground'
               : 'bg-black/70 text-white/90 hover:text-white hover:bg-black/80'
-          }`}
+            }`}
           title={showMask ? 'Hide Detection Mask' : 'Show Detection Mask'}
         >
           {showMask ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
@@ -325,11 +325,10 @@ export function CanvasEditor({
                 <button
                   key={texture.id}
                   onClick={() => handleTextureSelect(texture)}
-                  className={`group relative shrink-0 w-16 h-16 sm:w-18 sm:h-18 rounded-xl overflow-hidden transition-all duration-200 ${
-                    selectedTexture?.id === texture.id
+                  className={`group relative shrink-0 w-16 h-16 sm:w-18 sm:h-18 rounded-xl overflow-hidden transition-all duration-200 ${selectedTexture?.id === texture.id
                       ? 'ring-2 ring-primary ring-offset-2 ring-offset-card scale-105'
                       : 'ring-1 ring-border hover:ring-primary/50 hover:scale-105'
-                  }`}
+                    }`}
                   title={texture.name}
                 >
                   <img

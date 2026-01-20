@@ -2,22 +2,22 @@
 
 import { useRef, useEffect, useState } from 'react';
 import { applyTextureOverlay } from '@/lib/canvas/overlay';
-import type { SegmentationData, Texture } from '@/types';
+import type { SegmentationData, Texture, BlendMode } from '@/types';
 
 interface TexturePreviewCanvasProps {
   originalImageUrl: string;
   segmentationData: SegmentationData;
   texture: Texture | null;
   opacity?: number;
-  blendMode?: 'multiply' | 'overlay' | 'normal';
+  blendMode?: BlendMode;
 }
 
 export function TexturePreviewCanvas({
   originalImageUrl,
   segmentationData,
   texture,
-  opacity = 0.8,
-  blendMode = 'multiply',
+  opacity = 1.0,
+  blendMode = 'replace',
 }: TexturePreviewCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const originalImageRef = useRef<HTMLImageElement | null>(null);
@@ -134,7 +134,7 @@ export function TexturePreviewCanvas({
         ref={canvasRef}
         className="max-w-full max-h-full object-contain"
         style={{
-          imageRendering: 'high-quality',
+          imageRendering: 'auto',
         }}
       />
 

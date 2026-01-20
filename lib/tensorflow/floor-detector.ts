@@ -283,7 +283,7 @@ function detectWallRegions(
   };
 
   // Sample wall color from upper portion
-  const wallSampleY = Math.floor(height * 0.2);
+  const wallSampleY = Math.floor(height * 0.15);
   const wallColors: { r: number, g: number, b: number }[] = [];
 
   for (const pct of [0.2, 0.35, 0.5, 0.65, 0.8]) {
@@ -312,10 +312,10 @@ function detectWallRegions(
   console.log(`Wall-floor color difference: ${wallFloorDiff.toFixed(1)}`);
 
   // If colors are too similar, don't try to detect walls by color
-  // Just use position-based wall detection (upper 35% is wall)
+  // Just use position-based wall detection (upper 30% is wall) - less aggressive
   if (wallFloorDiff < 40) {
     console.log('Wall and floor colors similar - using position-only wall detection');
-    const wallEndY = Math.floor(height * 0.35);
+    const wallEndY = Math.floor(height * 0.30);
     for (let y = 0; y < wallEndY; y++) {
       for (let x = 0; x < width; x++) {
         wallMask[y][x] = 1;
@@ -325,8 +325,8 @@ function detectWallRegions(
   }
 
   // Colors are different enough - use color-based detection
-  // Only mark pixels as wall if they're in upper 50% AND match wall color better than floor
-  const maxWallY = Math.floor(height * 0.5);
+  // Only mark pixels as wall if they're in upper 40% AND match wall color better than floor
+  const maxWallY = Math.floor(height * 0.40);
 
   for (let y = 0; y < maxWallY; y++) {
     for (let x = 0; x < width; x++) {
@@ -346,8 +346,8 @@ function detectWallRegions(
       );
 
       // Mark as wall if closer to wall color than floor color
-      // And wall color match is reasonably good
-      if (distToWall < distToFloor && distToWall < 60) {
+      // And wall color match is reasonably good (more permissive threshold)
+      if (distToWall < distToFloor && distToWall < 70) {
         wallMask[y][x] = 1;
       }
     }
@@ -386,11 +386,11 @@ function floodFillFromBottomFloorOnly(
   const mask: number[][] = Array(height).fill(null).map(() => Array(width).fill(0));
   const visited: boolean[][] = Array(height).fill(null).map(() => Array(width).fill(false));
 
-  // More permissive color threshold to detect complete floor
-  const colorThreshold = 65;
+  // More permissive color threshold to detect complete floor across all resolutions
+  const colorThreshold = 80;
 
-  // Allow floor detection in bottom 75% of image
-  const minY = Math.floor(height * 0.25);
+  // Allow floor detection in bottom 80% of image
+  const minY = Math.floor(height * 0.20);
 
   const getColor = (x: number, y: number) => {
     const i = (y * width + x) * 4;
@@ -504,11 +504,11 @@ function detectBottomRegionFloorOnly(
     b: sortedB[mid],
   };
 
-  // More permissive threshold to detect complete floor
-  const threshold = 75;
+  // More permissive threshold to detect complete floor across all resolutions
+  const threshold = 85;
 
-  // Allow floor detection in bottom 75% of image
-  const minY = Math.floor(height * 0.25);
+  // Allow floor detection in bottom 80% of image
+  const minY = Math.floor(height * 0.20);
 
   for (let y = minY; y < height; y++) {
     for (let x = 0; x < width; x++) {
@@ -572,11 +572,11 @@ function detectBottomRegionRelaxedFloorOnly(
     b: sortedB[mid],
   };
 
-  // Very permissive threshold for relaxed detection
-  const threshold = 90;
+  // Very permissive threshold for relaxed detection across all resolutions
+  const threshold = 100;
 
-  // Allow floor detection in bottom 80% of image
-  const minY = Math.floor(height * 0.2);
+  // Allow floor detection in bottom 85% of image
+  const minY = Math.floor(height * 0.15);
 
   for (let y = minY; y < height; y++) {
     for (let x = 0; x < width; x++) {
