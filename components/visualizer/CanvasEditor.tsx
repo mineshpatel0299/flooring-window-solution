@@ -1,7 +1,17 @@
 'use client';
 
 import { useRef, useEffect, useState, useCallback } from 'react';
-import { ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
+import {
+  ChevronLeft,
+  ChevronRight,
+  Loader2,
+  ZoomIn,
+  ZoomOut,
+  Eye,
+  EyeOff,
+  Download,
+  Image as ImageIcon
+} from 'lucide-react';
 import { applyTextureOverlay, drawMaskOverlay } from '@/lib/canvas/overlay';
 import { downloadCanvas } from '@/lib/canvas/export';
 import { DEFAULT_CANVAS_SETTINGS } from '@/lib/constants';
@@ -29,6 +39,7 @@ export function CanvasEditor({
   onCanvasReady,
 }: CanvasEditorProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const originalImageRef = useRef<HTMLImageElement | null>(null);
   const textureImageRef = useRef<HTMLImageElement | null>(null);
 
@@ -40,9 +51,6 @@ export function CanvasEditor({
   const [isRendering, setIsRendering] = useState(false);
   const [showMask, setShowMask] = useState(false);
   const [zoom, setZoom] = useState(1);
-  const [pan, setPan] = useState({ x: 0, y: 0 });
-  const [isDragging, setIsDragging] = useState(false);
-  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const textureScrollRef = useRef<HTMLDivElement>(null);
 
   // Sync settings from props
@@ -139,38 +147,17 @@ export function CanvasEditor({
     }
   }, [selectedTexture, segmentationMask, settings, showMask]);
 
-  // Handle zoom
-  const handleWheel = useCallback((e: React.WheelEvent) => {
-    e.preventDefault();
-    const delta = e.deltaY > 0 ? 0.9 : 1.1;
-    setZoom((prev) => Math.max(0.1, Math.min(5, prev * delta)));
+  // Zoom controls
+  const handleZoomIn = useCallback(() => {
+    setZoom((prev) => Math.min(3, prev + 0.25));
   }, []);
 
-  // Handle pan start
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    if (e.button === 0) {
-      // Left click
-      setIsDragging(true);
-      setDragStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
-    }
-  }, [pan]);
+  const handleZoomOut = useCallback(() => {
+    setZoom((prev) => Math.max(0.5, prev - 0.25));
+  }, []);
 
-  // Handle pan move
-  const handleMouseMove = useCallback(
-    (e: React.MouseEvent) => {
-      if (isDragging) {
-        setPan({
-          x: e.clientX - dragStart.x,
-          y: e.clientY - dragStart.y,
-        });
-      }
-    },
-    [isDragging, dragStart]
-  );
-
-  // Handle pan end
-  const handleMouseUp = useCallback(() => {
-    setIsDragging(false);
+  const handleResetZoom = useCallback(() => {
+    setZoom(1);
   }, []);
 
   // Export functions
@@ -210,144 +197,43 @@ export function CanvasEditor({
   }, [onCanvasReady]);
 
   return (
-    <div className="flex flex-col h-full border border-border rounded-lg overflow-hidden bg-card">
-      {/* Controls */}
-      <div className="p-3 sm:p-4 bg-card border-b border-border space-y-3 sm:space-y-4">
-        {/* View Options */}
-        <div className="flex flex-wrap gap-2">
-          <button
-            onClick={() => setShowMask(!showMask)}
-            className={`flex-1 min-w-30 px-3 py-2 text-xs sm:text-sm rounded-md transition-colors ${
-              showMask
-                ? 'bg-primary text-primary-foreground'
-                : 'bg-secondary text-secondary-foreground'
-            }`}
-          >
-            {showMask ? 'Hide' : 'Show'} Mask
-          </button>
-
-          <button
-            onClick={() => setZoom(1)}
-            className="flex-1 min-w-30 px-3 py-2 text-xs sm:text-sm bg-secondary text-secondary-foreground rounded-md hover:bg-secondary/80"
-          >
-            Reset Zoom
-          </button>
-        </div>
-
-        {/* Texture Carousel - Quick Texture Switching */}
-        {availableTextures.length > 0 && (
-          <div className="space-y-2">
-            <label className="text-xs sm:text-sm font-medium">
-              Quick Texture Switch
-            </label>
-            <div className="relative">
-              {/* Left scroll button */}
-              <button
-                onClick={() => scrollTextures('left')}
-                className="absolute left-0 top-1/2 -translate-y-1/2 z-10 p-1 bg-background/90 border border-border rounded-full shadow-sm hover:bg-muted transition-colors"
-                aria-label="Scroll left"
-              >
-                <ChevronLeft className="w-4 h-4" />
-              </button>
-
-              {/* Texture thumbnails */}
-              <div
-                ref={textureScrollRef}
-                className="flex gap-2 overflow-x-auto scrollbar-hide px-8 py-1"
-                style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
-              >
-                {availableTextures.map((texture) => (
-                  <button
-                    key={texture.id}
-                    onClick={() => handleTextureSelect(texture)}
-                    className={`relative shrink-0 w-14 h-14 sm:w-16 sm:h-16 rounded-md overflow-hidden border-2 transition-all ${
-                      selectedTexture?.id === texture.id
-                        ? 'border-primary ring-2 ring-primary/30'
-                        : 'border-border hover:border-primary/50'
-                    }`}
-                    title={texture.name}
-                  >
-                    <img
-                      src={texture.thumbnail_url || texture.image_url}
-                      alt={texture.name}
-                      className="w-full h-full object-cover"
-                    />
-                    {selectedTexture?.id === texture.id && (
-                      <div className="absolute inset-0 bg-primary/20 flex items-center justify-center">
-                        <div className="w-2 h-2 bg-primary rounded-full" />
-                      </div>
-                    )}
-                  </button>
-                ))}
-              </div>
-
-              {/* Right scroll button */}
-              <button
-                onClick={() => scrollTextures('right')}
-                className="absolute right-0 top-1/2 -translate-y-1/2 z-10 p-1 bg-background/90 border border-border rounded-full shadow-sm hover:bg-muted transition-colors"
-                aria-label="Scroll right"
-              >
-                <ChevronRight className="w-4 h-4" />
-              </button>
-            </div>
-            {selectedTexture && (
-              <p className="text-xs text-muted-foreground text-center">
-                Current: {selectedTexture.name}
-              </p>
-            )}
-          </div>
-        )}
-
-        {/* Export Buttons */}
-        <div className="flex flex-col sm:flex-row gap-2">
-          <button
-            onClick={() => handleExport('jpeg')}
-            className="flex-1 px-4 py-2.5 text-sm bg-primary text-primary-foreground rounded-md hover:opacity-90 font-medium"
-            disabled={isRendering}
-          >
-            Export JPEG
-          </button>
-          <button
-            onClick={() => handleExport('png')}
-            className="flex-1 px-4 py-2.5 text-sm bg-secondary text-secondary-foreground rounded-md hover:bg-secondary/80 font-medium"
-            disabled={isRendering}
-          >
-            Export PNG
-          </button>
-        </div>
-
-      </div>
-
-      {/* Canvas Container */}
+    <div className="flex flex-col bg-gradient-to-b from-card to-card/95 rounded-2xl overflow-hidden shadow-lg border border-border/50">
+      {/* Canvas Preview Area */}
       <div
-        className="flex-1 overflow-hidden bg-muted relative min-h-75 sm:min-h-100 lg:min-h-125"
-        onMouseDown={handleMouseDown}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
-        onMouseLeave={handleMouseUp}
-        onWheel={handleWheel}
+        ref={containerRef}
+        className="relative bg-gradient-to-br from-slate-100 to-slate-200 dark:from-slate-800 dark:to-slate-900 overflow-auto"
+        style={{
+          minHeight: '300px',
+          maxHeight: '70vh',
+        }}
       >
+        {/* Canvas wrapper with proper centering */}
         <div
-          className="absolute inset-0 flex items-center justify-center p-2 sm:p-4"
-          style={{
-            transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
-            transformOrigin: 'center',
-            cursor: isDragging ? 'grabbing' : 'grab',
-          }}
+          className="flex items-center justify-center p-4 sm:p-6"
+          style={{ minHeight: '300px' }}
         >
-          <canvas
-            ref={canvasRef}
-            className="max-w-full max-h-full shadow-lg"
+          <div
+            className="relative transition-transform duration-200 ease-out"
             style={{
-              imageRendering: 'high-quality',
+              transform: `scale(${zoom})`,
+              transformOrigin: 'center',
             }}
-          />
+          >
+            <canvas
+              ref={canvasRef}
+              className="max-w-full h-auto rounded-lg shadow-2xl ring-1 ring-black/10"
+              style={{
+                maxHeight: '60vh',
+                width: 'auto',
+              }}
+            />
+          </div>
         </div>
 
         {/* Loading Overlay */}
         {isRendering && (
           <div className="absolute inset-0 bg-background/80 backdrop-blur-sm flex items-center justify-center z-10">
-            <div className="flex flex-col items-center gap-3">
+            <div className="flex flex-col items-center gap-3 p-6 bg-card rounded-xl shadow-lg">
               <Loader2 className="w-8 h-8 animate-spin text-primary" />
               <span className="text-sm font-medium text-muted-foreground">
                 Applying texture...
@@ -356,9 +242,142 @@ export function CanvasEditor({
           </div>
         )}
 
-        {/* Zoom indicator */}
-        <div className="absolute bottom-2 sm:bottom-4 right-2 sm:right-4 px-2 sm:px-3 py-1 sm:py-1.5 bg-black/50 text-white text-xs sm:text-sm rounded-md">
-          {Math.round(zoom * 100)}%
+        {/* Floating Zoom Controls */}
+        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-1 p-1.5 bg-black/70 backdrop-blur-md rounded-full shadow-lg">
+          <button
+            onClick={handleZoomOut}
+            className="p-2 text-white/90 hover:text-white hover:bg-white/20 rounded-full transition-colors"
+            title="Zoom Out"
+            disabled={zoom <= 0.5}
+          >
+            <ZoomOut className="w-4 h-4" />
+          </button>
+
+          <button
+            onClick={handleResetZoom}
+            className="px-3 py-1.5 text-white/90 hover:text-white hover:bg-white/20 rounded-full transition-colors text-sm font-medium min-w-[60px]"
+            title="Reset Zoom"
+          >
+            {Math.round(zoom * 100)}%
+          </button>
+
+          <button
+            onClick={handleZoomIn}
+            className="p-2 text-white/90 hover:text-white hover:bg-white/20 rounded-full transition-colors"
+            title="Zoom In"
+            disabled={zoom >= 3}
+          >
+            <ZoomIn className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* Toggle Mask Button - Floating */}
+        <button
+          onClick={() => setShowMask(!showMask)}
+          className={`absolute top-4 right-4 flex items-center gap-2 px-3 py-2 rounded-full shadow-lg backdrop-blur-md transition-all ${
+            showMask
+              ? 'bg-primary text-primary-foreground'
+              : 'bg-black/70 text-white/90 hover:text-white hover:bg-black/80'
+          }`}
+          title={showMask ? 'Hide Detection Mask' : 'Show Detection Mask'}
+        >
+          {showMask ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+          <span className="text-xs font-medium hidden sm:inline">
+            {showMask ? 'Hide Mask' : 'Show Mask'}
+          </span>
+        </button>
+      </div>
+
+      {/* Texture Carousel Section */}
+      {availableTextures.length > 0 && (
+        <div className="px-4 py-4 border-t border-border/50 bg-card/50">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <ImageIcon className="w-4 h-4 text-muted-foreground" />
+              <span className="text-sm font-medium text-foreground">
+                Quick Texture Switch
+              </span>
+            </div>
+            {selectedTexture && (
+              <span className="text-xs text-muted-foreground bg-muted px-2 py-1 rounded-full">
+                {selectedTexture.name}
+              </span>
+            )}
+          </div>
+
+          <div className="relative">
+            {/* Left scroll button */}
+            <button
+              onClick={() => scrollTextures('left')}
+              className="absolute left-0 top-1/2 -translate-y-1/2 z-10 p-1.5 bg-card/95 border border-border rounded-full shadow-md hover:bg-muted transition-colors"
+              aria-label="Scroll left"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+
+            {/* Texture thumbnails */}
+            <div
+              ref={textureScrollRef}
+              className="flex gap-2 overflow-x-auto scrollbar-hide px-8 py-1"
+              style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+            >
+              {availableTextures.map((texture) => (
+                <button
+                  key={texture.id}
+                  onClick={() => handleTextureSelect(texture)}
+                  className={`group relative shrink-0 w-16 h-16 sm:w-18 sm:h-18 rounded-xl overflow-hidden transition-all duration-200 ${
+                    selectedTexture?.id === texture.id
+                      ? 'ring-2 ring-primary ring-offset-2 ring-offset-card scale-105'
+                      : 'ring-1 ring-border hover:ring-primary/50 hover:scale-105'
+                  }`}
+                  title={texture.name}
+                >
+                  <img
+                    src={texture.thumbnail_url || texture.image_url}
+                    alt={texture.name}
+                    className="w-full h-full object-cover"
+                  />
+                  {selectedTexture?.id === texture.id && (
+                    <div className="absolute inset-0 bg-primary/20 flex items-center justify-center">
+                      <div className="w-3 h-3 bg-primary rounded-full shadow-lg" />
+                    </div>
+                  )}
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+                </button>
+              ))}
+            </div>
+
+            {/* Right scroll button */}
+            <button
+              onClick={() => scrollTextures('right')}
+              className="absolute right-0 top-1/2 -translate-y-1/2 z-10 p-1.5 bg-card/95 border border-border rounded-full shadow-md hover:bg-muted transition-colors"
+              aria-label="Scroll right"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Export Actions */}
+      <div className="px-4 py-4 border-t border-border/50 bg-gradient-to-b from-card/50 to-muted/30">
+        <div className="flex flex-col sm:flex-row gap-3">
+          <button
+            onClick={() => handleExport('jpeg')}
+            className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-primary text-primary-foreground rounded-xl hover:bg-primary/90 transition-colors font-medium shadow-sm"
+            disabled={isRendering}
+          >
+            <Download className="w-4 h-4" />
+            <span>Export JPEG</span>
+          </button>
+          <button
+            onClick={() => handleExport('png')}
+            className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-secondary text-secondary-foreground rounded-xl hover:bg-secondary/80 transition-colors font-medium"
+            disabled={isRendering}
+          >
+            <Download className="w-4 h-4" />
+            <span>Export PNG</span>
+          </button>
         </div>
       </div>
     </div>

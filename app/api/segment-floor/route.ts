@@ -31,13 +31,21 @@ export async function POST(request: NextRequest) {
     const floorPoints = points || [[0.5, 0.85]];
     console.log('Running SAM 2 segmentation with points:', floorPoints);
 
+    // SAM 2 expects point_coords as actual pixel coordinates
+    // Since we're passing base64 image, we need to estimate image size or use normalized coords
+    // Using a standard reference size of 1024x1024 for normalization
+    const refSize = 1024;
+    const pointCoords = floorPoints.map((p: number[]) => [
+      Math.round(p[0] * refSize),
+      Math.round(p[1] * refSize)
+    ]);
+    const pointLabels = floorPoints.map(() => 1); // 1 = foreground
+
     const input: Record<string, unknown> = {
       image: image,
-      input_points: JSON.stringify(floorPoints.map((p: number[]) => [
-        Math.round(p[0] * 1000),
-        Math.round(p[1] * 1000)
-      ])),
-      input_labels: JSON.stringify(floorPoints.map(() => 1)),
+      point_coords: pointCoords,
+      point_labels: pointLabels,
+      multimask_output: false,
     };
 
     try {
